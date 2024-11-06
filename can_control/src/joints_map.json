@@ -1,0 +1,65 @@
+{
+    "joints": [
+        {
+            "name": "lf_hip_joint",
+            "can_id": 0,
+            "gear_ratio": 8
+        },
+        {
+            "name": "lf_upper_leg_joint",
+            "can_id": 1,
+            "gear_ratio": 8
+        },
+        {
+            "name": "lf_lower_leg_joint",
+            "can_id": 2,
+            "gear_ratio": 8
+        },
+        {
+            "name": "rf_hip_joint",
+            "can_id": 3,
+            "gear_ratio": 8
+        },
+        {
+            "name": "rf_upper_leg_joint",
+            "can_id": 4,
+            "gear_ratio": 8
+        },
+        {
+            "name": "rf_lower_leg_joint",
+            "can_id": 5,
+            "gear_ratio": 8
+        },
+        {
+            "name": "lh_hip_joint",
+            "can_id": 6,
+            "gear_ratio": 8
+        },
+        {
+            "name": "lh_upper_leg_joint",
+            "can_id": 7,
+            "gear_ratio": 8
+        },
+        {
+            "name": "lh_lower_leg_joint",
+            "can_id": 8,
+            "gear_ratio": 8
+        },
+        {
+            "name": "rh_hip_joint",
+            "can_id": 9,
+            "gear_ratio": 8
+        },
+        {
+            "name": "rh_upper_leg_joint",
+            "can_id": 10,
+            "gear_ratio": 8
+        },
+        {
+            "name": "rh_lower_leg_joint",
+            "can_id": 11,
+            "gear_ratio": 8
+        }
+    ]
+      
+}

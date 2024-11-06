@@ -1,51 +1,69 @@
 import math
-import can
-import cantools
-import time
-import roslibpy
-from can_test import CanJoint
+# import can
+# import cantools
+# import time
+# import roslibpy
+# from can_test import CanJoint
+import json
 
+def read_joints_map(path):
+    with open(path, 'r') as file:
+        data = json.load(file)
+    return data
+    
+joints_map = read_joints_map('can_control/src/joints_map.json')
+print(joints_map)
 # can_bus = can.Bus("can0", bustype="socketcan")
 
-# hip_roll_joint = CanJoint(can_bus, 9, 8)
-# hip_pitch_joint = CanJoint(can_bus, 10, 8)
-# knee_joint = CanJoint(can_bus, 11, 24)
-# # test_joint.disable_can()
-# hip_roll_joint.arm_closed_loop()
-# hip_roll_joint.set_limits()
+def create_can_joints(joints_map):
+    can_joints = {}
+    for joint in joints_map["joints"]:
+        print(joint)
+        # can_joints[joint] = CanJoint(can_bus, joints_map[joint]['id'], joints_map[joint]['gear_ratio'])
+    return can_joints
 
-# hip_pitch_joint.arm_closed_loop()
-# hip_pitch_joint.set_limits()
+can_joints = create_can_joints(joints_map)
 
-# knee_joint.arm_closed_loop()
-# knee_joint.set_limits()
+def arm_can_joints(can_joints):
+    for joint in can_joints:
+        print(joint)
+        can_joints[joint].arm_closed_loop()
+        can_joints[joint].set_limits()
 
-rosClient = roslibpy.Ros(host='ros-bridge-server', port=9090)
-rosClient.run()
+arm_can_joints(can_joints)
 
-print('Is ROS Connected : ', rosClient.is_connected)
+
+# rosClient = roslibpy.Ros(host='ros-bridge-server', port=9090)
+# rosClient.run()
+
+# print('Is ROS Connected : ', rosClient.is_connected)
 
 def handle_joint_cmd(message):
     print(str(message))
-    # hip_roll_angle_in_rad = message['points'][0]['positions'][0]
-    # hip_pitch_angle_in_rad = message['points'][0]['positions'][1]
-    # knee_angle_in_rad = message['points'][0]['positions'][2]
-    # # print(angle_in_rad)
-    # hip_roll_joint.goto(hip_roll_angle_in_rad)
-    # hip_pitch_joint.goto(hip_pitch_angle_in_rad)
-    # knee_joint.goto(knee_angle_in_rad)
-    # test_joint.goto(angle_in_rad)
+#     # pass
+    message = json.loads(str(message))
 
-listener = roslibpy.Topic(rosClient, '/joint_group_position_controller/command', 'trajectory_msgs/JointTrajectory', queue_length=1, throttle_rate=50)
-listener.subscribe(handle_joint_cmd)
+    joint_names = message['joint_names']
+    joint_positions = message['points'][0]['positions']
 
-# listener2 = roslibpy.Topic(rosClient, '/joint_states', 'sensor_msgs/JointState')
-# listener2.subscribe()
+    joint_commands = {}
+    for name, position in zip(joint_names, joint_positions):
+        joint_commands[name] = position
+    print(joint_commands)
 
-# talker = roslibpy.Topic(client, '/joint_states', 'sensor_msgs/JointState')
-try:
-    while rosClient.is_connected:
-        pass
-        # talker.publish(roslibpy.Message())
-except KeyboardInterrupt:
-    rosClient.terminate()
+    for joint in joint_names:
+        can_joints[joint].set_position(joint_commands[joint])
+        
+# listener = roslibpy.Topic(rosClient, '/joint_group_position_controller/command', 'trajectory_msgs/JointTrajectory', queue_length=1, throttle_rate=50)
+# listener.subscribe(handle_joint_cmd)
+
+# # listener2 = roslibpy.Topic(rosClient, '/joint_states', 'sensor_msgs/JointState')
+# # listener2.subscribe()
+
+# # talker = roslibpy.Topic(client, '/joint_states', 'sensor_msgs/JointState')
+# try:
+#     while rosClient.is_connected:
+#         pass
+#         # talker.publish(roslibpy.Message())
+# except KeyboardInterrupt:
+#     rosClient.terminate()
