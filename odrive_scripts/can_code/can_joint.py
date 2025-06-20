@@ -24,17 +24,6 @@ class CanJoint:
         except can.CanError:
             print("Message NOT sent!")
 
-        # for msg in self.can_bus:
-        #     if msg.arbitration_id == 0x01 | self.axisID << 5:
-        #         print("\nReceived Axis heartbeat message:")
-        #         msg = self.can_db.decode_message('Axis0_Heartbeat', msg.data)
-        #         print(msg)
-        #         if msg['Axis_State'] == 0x8:
-        #             print("Axis has entered closed loop")
-        #         else:
-        #             print("Axis failed to enter closed loop")
-        #         break
-
     def disarm(self):
         print("\nPutting axis",self.axisID,"into AXIS_STATE_IDLE (0x01)...")
         data = self.can_db.encode_message('Axis0_Set_Axis_State', {'Axis_Requested_State': 0x01})
@@ -45,6 +34,7 @@ class CanJoint:
             print("Message sent on {}".format(self.can_bus.channel_info))
         except can.CanError:
             print("Message NOT sent!")
+
     def move_to_zero(self):
         self.clear_errors()
         self.arm_closed_loop()
@@ -98,7 +88,6 @@ class CanJoint:
             self.can_bus.send(msg)
 
     def inputPos( self, degrees_to_move ):
-        #setpoint = math.degrees(angle_in_radians)*(gear_ratio / 360.0)
         setpoint = degrees_to_move*(self.gear_ratio / 360.0)
         data = self.can_db.encode_message('Axis0_Set_Input_Pos', {'Input_Pos':setpoint, 'Vel_FF':0.0, 'Torque_FF':0.0})
         msg = can.Message(arbitration_id=self.axisID << 5 | 0x00C, data=data, is_extended_id=False)
