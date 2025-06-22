@@ -8,7 +8,9 @@ from std_msgs.msg import String
 
 class PillaHardwareInterfaceNode(Node):
     def __init__(self):
-        super().__init__('pilla_node')
+        super().__init__('pilla_node') 
+
+        self.numJoints = 3
 
         # SUBCRIBING (to simulation joint movement)
         self.subscription = self.create_subscription(
@@ -19,28 +21,27 @@ class PillaHardwareInterfaceNode(Node):
         )
         self.subscription 
 
-        # PUBLISHING (to odrive node)
-        self.publisher_0 = self.create_publisher(
-            ControlMessage,
-            '/odrive_axis0/control_message', #topic
-            10
-        )
-        self.publisher_1 = self.create_publisher(
-            ControlMessage,
-            '/odrive_axis1/control_message', #topic
-            10
-        )
-        self.publisher_2 = self.create_publisher(
-            ControlMessage,
-            '/odrive_axis2/control_message', #topic
-            10
-        )
+        # PUBLISHING & SERVICE CLIENT (to odrive node)
+        self.publishers_ = []
+        self.clients_ = []
 
-        # SERVICE CLIENT
+        for i in range(0,self.numJoints):
+            # PUBLISHER
+            tempStringP = '/odrive_axis' + str(i) + '/control_message'
+            tempP = self.create_publisher(
+                ControlMessage,
+                tempStringP,
+                10
+            )
+            self.publishers_.append( tempP )
+            # SERVICE CLIENT
+            tempStringC = '/odrive_axis' + str(i) + '/request_axis_state'
+            tempC = self.create_client(
+                AxisState,
+                tempStringC
+            )
+            self.clients_.append( tempC)
 
-        self.cli_0 = self.create_client(AxisState, '/odrive_axis0/request_axis_state')
-        self.cli_1 = self.create_client(AxisState, '/odrive_axis1/request_axis_state')
-        self.cli_2 = self.create_client(AxisState, '/odrive_axis2/request_axis_state')
         # while not self.cli.wait_for_service(timeout_sec=1.0):
         #     self.get_logger().info('service not available, waiting again...')
         self.req = AxisState.Request()
@@ -49,29 +50,27 @@ class PillaHardwareInterfaceNode(Node):
     # For Service
     def send_request(self, axis_requested_state):
         self.req.axis_requested_state = axis_requested_state
-        self.future = self.cli_0.call_async(self.req)
-        self.future = self.cli_1.call_async(self.req)
-        self.future = self.cli_2.call_async(self.req)
+        for i in range(0, self.numJoints):
+            self.future = self.clients_[i].call_async(self.req)
         rclpy.spin_until_future_complete(self, self.future)
         return self.future.result()
 
     # For subscriber (get position from simulation)
     def listener_callback(self, msg):
-        self.get_logger().info('I heard: "%s"' % msg.points[0].positions[0])
-        self.get_logger().info('I heard: "%s"' % msg.points[0].positions[1])
-        self.get_logger().info('I heard: "%s"' % msg.points[0].positions[2])
+        for i in range(0,self.numJoints):
+            self.get_logger().info('I heard: "%s"' % msg.points[0].positions[i])
         send_msg = ControlMessage()
         send_msg.control_mode = 3
         send_msg.input_mode = 1
         send_msg.input_vel = 0.0
         send_msg.input_torque = 0.0
 
-        send_msg.input_pos = msg.points[0].positions[0] * 1.27 # Different!!
-        self.publisher_0.publish(send_msg)
-        send_msg.input_pos = msg.points[0].positions[1] * 1.27 # Different!!
-        self.publisher_1.publish(send_msg)
-        send_msg.input_pos = msg.points[0].positions[2] * 2.26 # Different!!
-        self.publisher_2.publish(send_msg)
+        for i in range(0,self.numJoints):
+            multValue = 1.27 # for gear ratio multiplication
+            if( i % 3 == 2 ):
+                multValue = 2.26 # different for knee joint
+            send_msg.input_pos = msg.points[0].positions[i] * multValue
+            self.publishers_[i].publish(send_msg)
         # Note: 
         # -> for knee joint (position 2), must multiply by 0.7854 -> now 2.26
         # -> for upper leg (position 1), 1.27 
