@@ -20,7 +20,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'odrive_interface = pilla_hw.odrive_interface:main'
+            'odrive_interface = pilla_hw.odrive_interface:main',
+            'arduino_interface = pilla_hw.arduino_interface:main'
         ],
     },
 )
