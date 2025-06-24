@@ -5,6 +5,8 @@ from odrive_can.msg import ControlMessage #for publisher
 from odrive_can.srv import AxisState #for service (as client)
 from rclpy.node import Node
 from std_msgs.msg import String
+from rclpy.task import Future
+import functools
 
 class PillaHardwareInterfaceNode(Node):
     def __init__(self):
@@ -23,7 +25,9 @@ class PillaHardwareInterfaceNode(Node):
 
         # PUBLISHING & SERVICE CLIENT (to odrive node)
         self.publishers_ = []
+        self.pos_publish = []
         self.clients_ = []
+        self.futures_ = [Future] * self.numJoints
 
         for i in range(0,self.numJoints):
             # PUBLISHER
@@ -42,23 +46,35 @@ class PillaHardwareInterfaceNode(Node):
             )
             self.clients_.append( tempC)
 
-        # while not self.cli.wait_for_service(timeout_sec=1.0):
-        #     self.get_logger().info('service not available, waiting again...')
-        self.req = AxisState.Request()
+
         self.send_request(8) # make sure motor is in CLC before starting
 
     # For Service
     def send_request(self, axis_requested_state):
-        self.req.axis_requested_state = axis_requested_state
+        req = AxisState.Request()
+
+        req.axis_requested_state = axis_requested_state
+        
         for i in range(0, self.numJoints):
-            self.future = self.clients_[i].call_async(self.req)
-        rclpy.spin_until_future_complete(self, self.future)
-        return self.future.result()
+            while not self.clients_[i].wait_for_service(timeout_sec=1.0):
+                self.get_logger().info('service not available, waiting again...')
+            self.futures_[i] = self.clients_[i].call_async(req)
+            self.futures_[i].add_done_callback(functools.partial(self.service_done_callback, i))
+
+    def service_done_callback(self, i, future_):
+        self.get_logger().info('In the callback function')
+        self.get_logger().info('future ')
+        response = future_.result()
+        self.get_logger().info('Motor id : ' + str(i) + '  future response :: Active Errors : ' + str(response))
+                            #    + '  ;  axis state : ' + str(response.axis_state) 
+                            #    + '  ;  procedure_result : ' + str(response.procedure_result))
+
+
 
     # For subscriber (get position from simulation)
     def listener_callback(self, msg):
-        for i in range(0,self.numJoints):
-            self.get_logger().info('I heard: "%s"' % msg.points[0].positions[i])
+        # for i in range(0,self.numJoints):
+            # self.get_logger().info('I heard: "%s"' % msg.points[0].positions[i])
         send_msg = ControlMessage()
         send_msg.control_mode = 3
         send_msg.input_mode = 1
@@ -86,9 +102,6 @@ def main(args=None):
     pilla_node = PillaHardwareInterfaceNode()
     rclpy.spin( pilla_node )
 
-    # Shutdown process
-    pilla_node.destroy_node()
-    rclpy.shutdown()
 
 
 if __name__ == '__main__':
