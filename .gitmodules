@@ -1,0 +1,15 @@
+[submodule "ros_code/ros_ws/src/imu_tools"]
+	path = ros_code/ros_ws/src/imu_tools
+	url = https://github.com/CCNYRoboticsLab/imu_tools.git
+	branch = humble
+[submodule "ros_code/ros_ws/src/champ"]
+	path = ros_code/ros_ws/src/champ
+	url = https://github.com/chvmp/champ.git
+	branch = ros2
+[submodule "ros_code/ros_ws/src/champ_teleop"]
+	path = ros_code/ros_ws/src/champ_teleop
+	url = https://github.com/chvmp/champ_teleop.git
+	branch = ros2
+[submodule "ros_code/ros_ws/src/ros_odrive"]
+	path = ros_code/ros_ws/src/ros_odrive
+	url = https://github.com/odriverobotics/ros_odrive.git

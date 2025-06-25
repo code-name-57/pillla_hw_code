@@ -11,8 +11,8 @@ class ArduinoInterfaceNode(Node):
         # PUBLISHING (to odrive node)
         self.publisher_arduino = self.create_publisher(
             Imu,
-            '/imu2/data', #topic
-            10
+            'imu/data_raw', #topic
+            1000  # queue size
         )
         try:
             self.ser = serial.Serial(
@@ -44,6 +44,23 @@ class ArduinoInterfaceNode(Node):
                     imu_msg.linear_acceleration.y = float(data['Ay'])
                     imu_msg.linear_acceleration.z = float(data['Az'])
 
+                    imu_msg.orientation_covariance[0] = -1  # Mark orientation as unknown
+                    imu_msg.orientation_covariance[4] = 1e6
+                    imu_msg.orientation_covariance[8] = 1e6
+
+                    imu_msg.header.frame_id = "imu_link"
+                    imu_msg.orientation.x = 0.0
+                    imu_msg.orientation.y = 0.0
+                    imu_msg.orientation.z = 0.0
+                    imu_msg.orientation.w = 1.0
+
+                    imu_msg.angular_velocity_covariance[0] = 1e-6
+                    imu_msg.angular_velocity_covariance[4] = 1e-6
+                    imu_msg.angular_velocity_covariance[8] = 1e-6
+
+                    imu_msg.linear_acceleration_covariance[0] = 1e-6
+                    imu_msg.linear_acceleration_covariance[4] = 1e-6
+                    imu_msg.linear_acceleration_covariance[8] = 1e-6
                     self.publisher_arduino.publish(imu_msg)
 
             except serial.SerialException as e:
