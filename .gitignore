@@ -2,8 +2,3 @@
 ros_code/ros_ws/build
 ros_code/ros_ws/install
 ros_code/ros_ws/log
-
-# Other git repositories (Supposed to be submodules)
-ros_code/ros_ws/src/ros_odrive
-ros_code/ros_ws/src/champ
-ros_code/ros_ws/src/champ_teleop
