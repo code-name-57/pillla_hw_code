@@ -43,10 +43,9 @@ void loop() {
 
     // save values to json object
     // Convert gyroscope from dps (degrees per second) to rad/s (radians per second)
-    const float DEG_TO_RAD2 = 0.017; // PI / 180
-    doc["Gx"] = x * DEG_TO_RAD2;
-    doc["Gy"] = y * DEG_TO_RAD2;
-    doc["Gz"] = z * DEG_TO_RAD2;
+    doc["Gx"] = x * DEG_TO_RAD;
+    doc["Gy"] = y * DEG_TO_RAD;
+    doc["Gz"] = z * DEG_TO_RAD;
 
     serializeJson(doc, Serial);
     Serial.print('\n');
