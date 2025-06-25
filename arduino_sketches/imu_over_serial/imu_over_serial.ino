@@ -6,8 +6,9 @@
 //create JSON document
 StaticJsonDocument<200> doc; // allocates 200 bytes for JSON (could reduce?)
 
-const unsigned long interval = 20; // 20ms for 50Hz
+const unsigned long interval = 10; // 20ms for 50Hz
 unsigned long lastUpdate = 0;
+bool useRefreshRate = true; // use refresh rate if available
 
 void setup() {
   // Setup up serial monitor
@@ -23,7 +24,7 @@ void setup() {
 
 void loop() {
   unsigned long now = millis();
-  if (now - lastUpdate < interval) return;
+  if (now - lastUpdate < interval && useRefreshRate) return;
   lastUpdate = now;
 
   float x, y, z;
