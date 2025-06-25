@@ -9,7 +9,7 @@ from rclpy.node import Node
 from std_msgs.msg import String
 from rclpy.task import Future
 import functools
-from message_filters import Subscriber, TimeSynchronizer
+from message_filters import Subscriber, ApproximateTimeSynchronizer, Cache
 
 class PillaHardwareInterfaceNode(Node):
     def __init__(self):
@@ -30,12 +30,14 @@ class PillaHardwareInterfaceNode(Node):
         # (to odrive pos_estimates)
         self.subscribers = []
 
-        for i in range(2, self.numJoints ):
-            topic_string = '/odrive_axis' + str(2) + '/controller_status'
-            self.subscribers.append( Subscriber(self, ControllerStatus, topic_string) )
+        for i in range(0, self.numJoints ):
+            topic_string = '/odrive_axis' + str(1) + '/controller_status'
+            subs = Subscriber(self, ControllerStatus, topic_string)
+            self.subscribers.append( subs )
 
-        self.ts = TimeSynchronizer( self.subscribers, queue_size=10)
-        self.ts.registerCallback(self.synced_listener_callback)
+        self.ts = ApproximateTimeSynchronizer( self.subscribers, queue_size=10, slop=0.1, allow_headerless=True)
+        self.ts.registerCallback(lambda *msgs: self.synced_listener_callback(list(msgs)))
+        
 
         # PUBLISHING (to champ algorithm)
         self.sync_publishing = self.create_publisher(
@@ -132,6 +134,11 @@ class PillaHardwareInterfaceNode(Node):
 
         joint_state_msg = JointState()
 
+        joint_state_msg.name = [''] * 12
+        joint_state_msg.position = [0.0] * 12
+        joint_state_msg.velocity = [0.0] * 12
+        joint_state_msg.effort = [0.0] * 12
+
         joint_state_msg.name[0] = 'lf_lower_leg_joint'
         joint_state_msg.name[1] = 'lf_hip_joint'
         joint_state_msg.name[2] = 'lh_upper_leg_joint'
@@ -149,13 +156,13 @@ class PillaHardwareInterfaceNode(Node):
             gearRatio = 1.27
             if( i % 3 == 2 ):
                 gearRatio = 2.26
-            joint_state_msg.position[i] = msgs[i].input_pos / gearRatio
-            joint_state_msg.velocity[i] = msgs[i].input_vel / gearRatio
-            joint_state_msg.effort[i] = None
+            joint_state_msg.position[i] = msgs[i].pos_estimate / gearRatio
+            joint_state_msg.velocity[i] = msgs[i].vel_estimate / gearRatio
+            joint_state_msg.effort[i] = 0.0
             
         self.get_logger().info('Joint State Messages:')
-        self.get_logger().info( joint_state_msg )
-        # self.sync_publishing.publish( joint_state_msg )
+        # self.get_logger().info( joint_state_msg )
+        self.sync_publishing.publish( joint_state_msg )
 
 # MAIN
 def main(args=None):
