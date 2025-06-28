@@ -7,6 +7,14 @@ from launch_ros.substitutions import FindPackageShare
 from launch_ros.actions import Node
 
 def generate_launch_description():
+    this_package_name = 'pilla_hw'
+    this_package = FindPackageShare(this_package_name)
+    odrive_launch_path = PathJoinSubstitution(
+        [this_package, 'launch', 'odrive_nodes_launch.py']
+    )
+    pilla_arduino_imu_launch_path = PathJoinSubstitution(
+        [this_package, 'launch', 'champ_arduino_imu_launch.py']
+    )
     champ_bringup_launch_path = PathJoinSubstitution(
     [FindPackageShare('champ_config'), 'launch', 'bringup.launch.py']
     )
@@ -14,7 +22,10 @@ def generate_launch_description():
     [FindPackageShare('champ_teleop'), 'launch', 'teleop.launch.py']
     )
     return LaunchDescription([
-            
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(odrive_launch_path),
+        ),
+
         DeclareLaunchArgument(
             name='rviz', 
             default_value='true',
@@ -57,58 +68,16 @@ def generate_launch_description():
                 'dev': '/dev/input/js0'
             }.items()
         ),
-        # Add odrive_can_node
-        Node(
-            package="odrive_can",
-            executable="odrive_can_node",
-            name="odrive_can_node0",
-            namespace="odrive_axis0",
-            parameters=[
-            {"node_id": 0},
-            {"interface": "can0"}
-            ]
-        ),
-        Node(
-            package="odrive_can",
-            executable="odrive_can_node",
-            name="odrive_can_node1",
-            namespace="odrive_axis1",
-            parameters=[
-            {"node_id": 1},
-            {"interface": "can0"}
-            ]
-        ),
-        Node(
-            package="odrive_can",
-            executable="odrive_can_node",
-            name="odrive_can_node2",
-            namespace="odrive_axis2",
-            parameters=[
-            {"node_id": 2},
-            {"interface": "can0"}
-            ]
-        ),
+        
         Node(
             package="pilla_hw",
             executable="odrive_interface",
             name="pilla_odrive_interface",
             namespace="pilla",
         ),
-        Node(
-            package="pilla_hw",
-            executable="arduino_interface",
-            name="pilla_arduino_interface",
-            namespace="pilla",
+
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(pilla_arduino_imu_launch_path),
         ),
-        Node(
-            package="imu_filter_madgwick",
-            executable="imu_filter_madgwick_node",
-            name="imu_filter_madgwick",
-            namespace="pilla",
-            parameters=[
-                {"use_mag": False},
-                {"fixed_frame": 'odom'},
-                {"publish_tf": False},
-            ]
-        ),
+        
 ])
