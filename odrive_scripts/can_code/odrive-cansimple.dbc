@@ -1066,6 +1066,3 @@ SIG_VALTYPE_ 250 Pos_Gain : 1;
 SIG_VALTYPE_ 251 Vel_Gain : 1;
 SIG_VALTYPE_ 251 Vel_Integrator_Gain : 1;
 SIG_VALTYPE_ 252 ADC_Voltage : 1;
-
-
-

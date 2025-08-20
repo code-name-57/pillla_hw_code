@@ -19,6 +19,7 @@ joint.arm_closed_loop() # Pos Estimate prints zero if motors are in IDLE mode
 for msg in can_bus:
     for i in range(0,12):
         # check if message ID matches encoder message (0x009) from motor i
+
         if msg.arbitration_id == (0x009 | i << 5):
             AxisPosEstimate = 'Axis' + str(1) + '_Get_Encoder_Estimates'
             ID_number = i

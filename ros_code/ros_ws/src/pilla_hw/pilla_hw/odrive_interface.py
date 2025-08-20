@@ -21,57 +21,60 @@ class PillaHardwareInterfaceNode(Node):
         
         super().__init__('pilla_node') 
 
-        self.numJoints = 3
-        self.knee_joint_gear_ratio = 2.26 # position 2
-        self.upper_leg_gear_ratio = 1.27 # position 1
-        self.hip_joint_gear_ratio = 1.27 # position 0
-        self.queue_size = 10
+        self.numJoints = 12
+        self.gear_ratios = [
+            1.27,  # hip joint
+            1.27,  # upper leg joint
+            2.26,  # knee joint
+            1.27,  # hip joint
+            1.27,  # upper leg joint
+            2.26,  # knee joint
+            1.27,  # hip joint
+            1.27,  # upper leg joint
+            2.26,  # knee joint
+            1.27,  # hip joint
+            1.27,  # upper leg joint
+            2.26   # knee joint
+        ]
 
-        # Member Variable Definitions
-        self.odrive_pos_estimate_sub = []        
-        self.odrive_joint_command_publishers = []
-        self.odrive_axis_state_clients = []
-        self.odrive_axis_state_futures = [Future] * self.numJoints
-        self.axis_state_service_timeouts = [None] * self.numJoints  # Track timers
+        self.directions = [
+            1,  # hip joint
+            -1,  # upper leg joint
+            -1, # knee joint
+            1,  # hip joint
+            1,  # upper leg joint
+            1, # knee joint
+            1,  # hip joint
+            -1,  # upper leg joint
+            -1, # knee joint
+            1,  # hip joint
+            1,  # upper leg joint
+            1  # knee joint
+        ]
 
-        # Method Calls (with Error Handling)
-        try:
-            self.create_champ_joint_traj_subscription()
-        except Exception as e:
-            self.get_logger().error(f"Failed to create CHAMP joint trajectory subscription: {e}")
 
-        try:
-            self.create_odrive_pos_estimate_subscription()
-        except Exception as e:
-            self.get_logger().error(f"Failed to create ODrive Position Estimate subscription: {e}")
+        self.active_ = [
+            0,
+            1,
+            1,
+            0,
+            1,
+            1,
+            0,
+            1,
+            1,
+            0,
+            1,
+            1
+        ]
+        self.armed_state = [False] * self.numJoints # for each odrive axis
+        # SUBCRIBING (to simulation joint movement)
+        self.subscription = None
+        self.futures_ = [None] * self.numJoints
+        # PUBLISHING & SERVICE CLIENT (to odrive node)
+        self.publishers_ = []
+        self.clients_ = []
 
-        try:
-            self.create_champ_joint_state_publisher()
-        except Exception as e:
-            self.get_logger().error(f"Failed to create CHAMP joint state publisher: {e}")
-
-        try:
-            self.create_odrive_publisher_and_service()
-        except Exception as e:
-            self.get_logger().error(f"Failed to create ODrive publisher and/or ODrive service: {e}")
-
-    
-    # SUBCRIPTIONS
-    def create_champ_joint_traj_subscription(self):
-        """"Creates a ROS2 subscription to the joint trajectory topic for the CHAMP robot."""
-        
-        self.champ_joint_traj_sub = self.create_subscription(
-            JointTrajectory,
-            '/joint_group_effort_controller/joint_trajectory', #topic
-            self.joint_trajectory_listener_callback,
-            self.queue_size
-        )
-        self.champ_joint_traj_sub
-
-    def create_odrive_pos_estimate_subscription(self):
-        """Creates subscriptions to ODrive position estimate topics and synchronizes their messages."""
-        
-        # self.odrive_pos_estimate_sub = []
 
         for i in range(0, self.numJoints ):
             pos_estimate_topic_string = '/odrive_axis' + str(1) + '/controller_status'
@@ -116,7 +119,13 @@ class PillaHardwareInterfaceNode(Node):
             )
             self.odrive_axis_state_clients.append( axis_state_client )
 
-        self.send_AxisState_request(8) # make sure motor is in CLC before starting
+
+        # while not self.cli.wait_for_service(timeout_sec=1.0):
+        #     self.get_logger().info('service not available, waiting again...')
+        self.req = AxisState.Request()
+        self.get_logger().info('Pilla Hardware Interface Node may not have been started.')
+        self.send_request(8) # make sure motor is in CLC before starting
+
 
     # For Service
     def send_AxisState_request(self, axis_requested_state):
@@ -128,97 +137,52 @@ class PillaHardwareInterfaceNode(Node):
         # self.axis_state_service_timeouts = [None] * self.numJoints  # Track timers
 
         for i in range(0, self.numJoints):
-            while not self.odrive_axis_state_clients[i].wait_for_service(timeout_sec=1.0):
-                self.get_logger().info('service not available, waiting again...')
-            self.odrive_axis_state_futures[i] = self.odrive_axis_state_clients[i].call_async(req)
-            # Start a timer for timeout (e.g., 2 seconds)
-            self.axis_state_service_timeouts[i] = self.create_timer(
-                2.0, functools.partial(self.AxisState_service_timeout_callback, i)
-            )
-            self.odrive_axis_state_futures[i].add_done_callback(functools.partial(self.AxisState_service_done_callback, i))
+            while not self.clients_[i].wait_for_service(timeout_sec=2.0):
+                self.get_logger().info('odrive service not available, waiting again...')
+            self.futures_[i] = self.clients_[i].call_async(self.req)
+            rclpy.spin_until_future_complete(self, self.futures_[i], timeout_sec=1.0)
+            self.armed_state[i] = True
+            # self.futures_[i].result()  # This will raise an exception if the service call failed
+            # if self.futures_[i].result() is not None:
+            #     self.get_logger().info(f'Response from odrive axis {i}: {self.futures_[i].result().axis_state}')
+            #     self.armed_state[i] = (self.futures_[i].result().axis_state == axis_requested_state)
+            # else:
+            #     self.get_logger().error(f'Error calling service for odrive axis {i}')
 
-    def AxisState_service_done_callback(self, i, future_):
-        """Callback for handling completion of an axis state (closed loop control) service request."""
+        self.subscription = self.create_subscription(
+            JointTrajectory,
+            '/joint_group_effort_controller/joint_trajectory', #topic
+            self.listener_callback,
+            10
+        )
+        # return self.future.result()
 
-        # Cancel the timeout timer if response arrives in time
-        if self.axis_state_service_timeouts[i] is not None:
-            self.axis_state_service_timeouts[i].cancel()
-            self.axis_state_service_timeouts[i] = None
-        
-        self.get_logger().info('In the callback function')
-        self.get_logger().info('future ')
-        response = future_.result()
-        self.get_logger().info('Motor id : ' + str(i) + '  future response :: Active Errors : ' + str(response))
-                            #    + '  ;  axis state : ' + str(response.axis_state) 
-                            #    + '  ;  procedure_result : ' + str(response.procedure_result))
-
-    def AxisState_service_timeout_callback(self, i):
-        """Handles timeout event for axis state service response."""
-
-        self.get_logger().error(f"Timeout waiting for response from joint {i}")
-        self.axis_state_service_timeouts[i] = None
-
-    # For subscriber (organise position information from champ and publish it, 1 -> numJoints)
-    def joint_trajectory_listener_callback(self, msg):
-        """Callback to process joint trajectory message and publish them as ODrive commands."""
-
+    # For subscriber (get position from simulation)
+    def listener_callback(self, msg):
         # for i in range(0,self.numJoints):
-            # self.get_logger().info('I heard: "%s"' % msg.points[0].positions[i])
-        odrive_command_msg = ControlMessage()
-        odrive_command_msg.control_mode = 3
-        odrive_command_msg.input_mode = 1
-        odrive_command_msg.input_vel = 0.0
-        odrive_command_msg.input_torque = 0.0
+        #     self.get_logger().info('I heard: "%s"' % msg.points[0].positions[i])
+        send_msg = ControlMessage()
+        send_msg.control_mode = 3
+        send_msg.input_mode = 1
+        send_msg.input_vel = 0.0
+        send_msg.input_torque = 0.0
 
         for i in range(0,self.numJoints):
-            gearRatio = self.hip_joint_gear_ratio
-            if( i % 3 == 1 ):
-                gearRatio = self.upper_leg_gear_ratio
-            elif( i % 3 == 2 ):
-                gearRatio = self.knee_joint_gear_ratio
-            odrive_command_msg.input_pos = msg.points[0].positions[i] * gearRatio
-            self.odrive_joint_command_publishers[i].publish(odrive_command_msg)
-
-    def pos_estimates_listener_callback(self, msgs):
-        """Callback to process synchronized joint position messages and publish to CHAMP as single message"""
-        
-        self.get_logger().info('Received synchronized messages:')
-        # for i in range(self.numJoints):
-        #     self.get_logger().info(f'  Message {i}: {msgs[i]}')
-
-        joint_state_msg = JointState()
-
-        joint_state_msg.name = [''] * self.numJoints
-        joint_state_msg.position = [0.0] * self.numJoints
-        joint_state_msg.velocity = [0.0] * self.numJoints
-        joint_state_msg.effort = [0.0] * self.numJoints
-
-        joint_state_msg.name[0] = 'lf_lower_leg_joint'
-        joint_state_msg.name[1] = 'lf_hip_joint'
-        joint_state_msg.name[2] = 'lh_upper_leg_joint'
-        joint_state_msg.name[3] = 'lh_lower_leg_joint'
-        joint_state_msg.name[4] = 'rf_hip_joint'
-        joint_state_msg.name[5] = 'lf_upper_leg_joint'
-        joint_state_msg.name[6] = 'rf_lower_leg_joint'
-        joint_state_msg.name[7] = 'rh_hip_joint'
-        joint_state_msg.name[8] = 'rf_upper_leg_joint'
-        joint_state_msg.name[9] = 'rh_upper_leg_joint'
-        joint_state_msg.name[10] = 'lh_hip_joint'
-        joint_state_msg.name[11] = 'rh_lower_leg_joint'
-
-        for i in range( self.numJoints ):
-            gearRatio = self.hip_joint_gear_ratio
-            if( i % 3 == 1 ):
-                gearRatio = self.upper_leg_gear_ratio
-            elif( i % 3 == 2 ):
-                gearRatio = self.knee_joint_gear_ratio
-            joint_state_msg.position[i] = msgs[i].pos_estimate / gearRatio
-            joint_state_msg.velocity[i] = msgs[i].vel_estimate / gearRatio
-            joint_state_msg.effort[i] = 0.0
-            
-        self.get_logger().info('Joint State Messages:')
-        # self.get_logger().info( joint_state_msg )
-        self.champ_joint_state_publisher.publish( joint_state_msg )
+            if not self.active_[i]:
+                # self.get_logger().warn(f'Axis {i} is not active. Skipping control message.')
+                continue
+            if not self.armed_state[i]:
+                self.get_logger().warn(f'Axis {i} is not armed. Skipping control message.')
+                continue
+            multValue = 1.27 # for gear ratio multiplication
+            if( i % 3 == 2 ):
+                multValue = 2.26 # different for knee joint
+            send_msg.input_pos = msg.points[0].positions[i] * self.gear_ratios[i] * self.directions[i]
+            self.publishers_[i].publish(send_msg)
+        # Note: 
+        # -> for knee joint (position 2), must multiply by 0.7854 -> now 2.26
+        # -> for upper leg (position 1), 1.27 
+        # -> for hip joint (position 0), 1.27
 
 
 # MAIN
