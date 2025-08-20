@@ -26,31 +26,21 @@ def generate_launch_description():
         package="joy",
         output="screen",
         executable="joy_node",
-        condition=IfCondition(use_joy),
-        parameters=[
-            {'use_sim_time': use_sim_time},
-            {"dev": dev_port},
-            {"autorepeat_rate": "5"}
-            ]
+        # condition=IfCondition(use_joy),
+        # parameters=[
+        #     {'use_sim_time': use_sim_time},
+        #     {"dev_port": dev_port},
+        #     {"autorepeat_rate": "5"}
+        #     ]
     )
 
-    champ_teleop = Node(
-        package="champ_teleop",
-        executable="champ_teleop.py",
-        # output="screen",
-        prefix="xterm -e",
-        emulate_tty=True,
-        parameters=[
-            {'use_sim_time': use_sim_time},
-            {"use_joy": use_joy}
-            ]
+    pilla_teleop = Node(
+        package="pilla_teleop",
+        executable="pilla_teleop.py",
     )
     return LaunchDescription(
         [
-            declare_use_sim_time,
-            declare_use_joy,
-            declare_dev_port,
             joy,
-            champ_teleop
+            pilla_teleop
         ]
     )

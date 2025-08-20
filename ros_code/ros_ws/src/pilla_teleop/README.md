@@ -1,15 +1,15 @@
-# champ_teleop
+# pilla_teleop
 Champ Quadruped Robot's teleoperation node. This is a forked version of [teleop_twist_keyboard](https://github.com/ros-teleop/teleop_twist_keyboard/blob/master/teleop_twist_keyboard.py). 
 
 The software has been modified to control the robot's whole-body pose (roll, pitch, yaw).
 
 ## How to use
 
-    roslaunch champ_teleop teleop.launch
+    roslaunch pilla_teleop teleop.launch
 
 optional paramters for Logitech f710:
 
-    roslaunch champ_teleop teleop.launch joy:=true
+    roslaunch pilla_teleop teleop.launch joy:=true
 
 * Make sure the joystick's switch on top is in 'x' mode.
 
