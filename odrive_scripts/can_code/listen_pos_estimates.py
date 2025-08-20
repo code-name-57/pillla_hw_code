@@ -17,7 +17,7 @@ time.sleep(0.01)
 for msg in can_bus:
     for i in range(0,12):
         # check if message ID matches encoder message (0x009) from motor i
-        if msg.arbitration_id == (0x009 | i << 5):
+        if msg.arbitration_id == (0x09 | i << 5):
             AxisPosEstimate = 'Axis' + str(i) + '_Get_Encoder_Estimates'
             ID_number = i
             print("\nReceived Axis", ID_number, " encoder message:")

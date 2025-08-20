@@ -3,7 +3,7 @@ import can
 import cantools
 import time
 # import roslibpy
-from can_test import CanJoint
+from can_joint import CanJoint
 import json
 
 can_bus = can.Bus("can0", bustype="socketcan")

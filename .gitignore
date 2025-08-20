@@ -2,3 +2,7 @@
 ros_code/ros_ws/build
 ros_code/ros_ws/install
 ros_code/ros_ws/log
+
+env/
+
+**/__pycache__/
