@@ -1,13 +1,24 @@
 # LIBRARIES
 import rclpy
-from trajectory_msgs.msg import JointTrajectory #for subscriber
-from odrive_can.msg import ControlMessage #for publisher
+from trajectory_msgs.msg import JointTrajectory #for subscriber (to champ)
+from odrive_can.msg import ControlMessage #for publisher (to odrive)
+from odrive_can.msg import ControllerStatus #for subscriber (to odrive)
+from sensor_msgs.msg import JointState #for publisher (to champ)
 from odrive_can.srv import AxisState #for service (as client)
 from rclpy.node import Node
 from std_msgs.msg import String
+from rclpy.task import Future
+import functools
+from message_filters import Subscriber, ApproximateTimeSynchronizer, Cache
+
 
 class PillaHardwareInterfaceNode(Node):
+    """Node that interfaces between CHAMP and ODrive motor controllers."""
+    
+    # INITIALIZATION (including method calls)
     def __init__(self):
+        """"Initializes the pilla_node with joint parameters and sets up publishers, subscribers, services."""
+        
         super().__init__('pilla_node') 
 
         self.numJoints = 12
@@ -64,22 +75,50 @@ class PillaHardwareInterfaceNode(Node):
         self.publishers_ = []
         self.clients_ = []
 
-        for i in range(0,self.numJoints):
+
+        for i in range(0, self.numJoints ):
+            pos_estimate_topic_string = '/odrive_axis' + str(1) + '/controller_status'
+            pos_estimate_subs = Subscriber(self, ControllerStatus, pos_estimate_topic_string)
+            self.odrive_pos_estimate_sub.append( pos_estimate_subs )
+
+        self.ts = ApproximateTimeSynchronizer( self.odrive_pos_estimate_sub, queue_size=self.queue_size, slop=0.1, allow_headerless=True)
+        self.ts.registerCallback(lambda *msgs: self.pos_estimates_listener_callback(list(msgs)))
+        
+    # PUBLISHING (to champ algorithm)
+    def create_champ_joint_state_publisher(self):
+        """Creates a ROS publisher for publishing joint states to CHAMP algorithm"""
+
+        self.champ_joint_state_publisher = self.create_publisher(
+            JointState,
+            '/joint_states', #topic
+            self.queue_size
+        )
+
+    # PUBLISHING & SERVICE CLIENT (to odrive node)
+    def create_odrive_publisher_and_service(self):
+        """Initialize ODrive joint command publishers and axis state service clients for each joint."""
+
+        # self.odrive_joint_command_publishers = []
+        # self.odrive_axis_state_clients = []
+        # self.odrive_axis_state_futures = [Future] * self.numJoints
+
+        for i in range(0 ,self.numJoints):
             # PUBLISHER
-            tempStringP = '/odrive_axis' + str(i) + '/control_message'
-            tempP = self.create_publisher(
+            joint_command_topic_string = '/odrive_axis' + str(i) + '/control_message'
+            joint_command_pub = self.create_publisher(
                 ControlMessage,
-                tempStringP,
-                10
+                joint_command_topic_string,
+                self.queue_size
             )
-            self.publishers_.append( tempP )
+            self.odrive_joint_command_publishers.append( joint_command_pub )
             # SERVICE CLIENT
-            tempStringC = '/odrive_axis' + str(i) + '/request_axis_state'
-            tempC = self.create_client(
+            axis_state_topic_string = '/odrive_axis' + str(i) + '/request_axis_state'
+            axis_state_client = self.create_client(
                 AxisState,
-                tempStringC
+                axis_state_topic_string
             )
-            self.clients_.append( tempC)
+            self.odrive_axis_state_clients.append( axis_state_client )
+
 
         # while not self.cli.wait_for_service(timeout_sec=1.0):
         #     self.get_logger().info('service not available, waiting again...')
@@ -87,9 +126,16 @@ class PillaHardwareInterfaceNode(Node):
         self.get_logger().info('Pilla Hardware Interface Node may not have been started.')
         self.send_request(8) # make sure motor is in CLC before starting
 
+
     # For Service
-    def send_request(self, axis_requested_state):
-        self.req.axis_requested_state = axis_requested_state
+    def send_AxisState_request(self, axis_requested_state):
+        """Send a request to set the axis state (closed loop control) for all ODrive motors."""
+        
+        req = AxisState.Request()
+        req.axis_requested_state = axis_requested_state
+        
+        # self.axis_state_service_timeouts = [None] * self.numJoints  # Track timers
+
         for i in range(0, self.numJoints):
             while not self.clients_[i].wait_for_service(timeout_sec=2.0):
                 self.get_logger().info('odrive service not available, waiting again...')
@@ -138,8 +184,11 @@ class PillaHardwareInterfaceNode(Node):
         # -> for upper leg (position 1), 1.27 
         # -> for hip joint (position 0), 1.27
 
+
 # MAIN
 def main(args=None):
+    """Entry point for initializing and spinning the Pilla hardware interface node."""
+
     # Confirmation of starting
     print('Hi from my_package.')
 
@@ -147,10 +196,6 @@ def main(args=None):
     rclpy.init(args = args)
     pilla_node = PillaHardwareInterfaceNode()
     rclpy.spin( pilla_node )
-
-    # Shutdown process
-    pilla_node.destroy_node()
-    rclpy.shutdown()
 
 
 if __name__ == '__main__':
