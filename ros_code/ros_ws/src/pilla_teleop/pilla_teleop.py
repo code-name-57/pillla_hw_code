@@ -71,7 +71,7 @@ class Teleop(Node):
         if data.axes[5] < 0:
             body_pose_lite.z = data.axes[5] * 0.5
 
-        self.pose_lite_publisher.publish(body_pose_lite)
+        # self.pose_lite_publisher.publish(body_pose_lite)
 
         body_pose = Pose()
         body_pose.position.z = body_pose_lite.z
@@ -82,7 +82,7 @@ class Teleop(Node):
         body_pose.orientation.z = quaternion[2]
         body_pose.orientation.w = quaternion[3]
 
-        self.pose_publisher.publish(body_pose)
+        # self.pose_publisher.publish(body_pose)
 
 if __name__ == "__main__":
     rclpy.init()
