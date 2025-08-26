@@ -57,7 +57,6 @@ class PillaHardwareInterfaceNode(Node):
         ]
         
         self.armed_state = [False] * self.numJoints
-        self.calibrated_state = [False] * self.numJoints
         self.connection_status = [False] * self.numJoints
         self.last_encoder_positions = [0.0] * self.numJoints
         
@@ -132,9 +131,6 @@ class PillaHardwareInterfaceNode(Node):
         )
         self.disarm_motors_service = self.create_service(
             SetBool, 'disarm_motors', self.disarm_motors_callback
-        )
-        self.calibrate_service = self.create_service(
-            SetBool, 'calibrate_odrive', self.calibrate_callback
         )
         
         # Timer for periodic diagnostics publishing
@@ -224,30 +220,6 @@ class PillaHardwareInterfaceNode(Node):
         response.message = "Disarmed all motors" if success else "Failed to disarm some motors"
         return response
 
-    def calibrate_callback(self, request, response):
-        """Service callback to calibrate ODrive motors."""
-        success = True
-        for i in range(self.numJoints):
-            if self.active_[i]:
-                self.get_logger().info(f'Starting calibration for axis {i}')
-                
-                # Motor calibration
-                if not self.send_axis_state_request(i, 4):  # MOTOR_CALIBRATION
-                    success = False
-                    continue
-                
-                # Encoder calibration
-                if not self.send_axis_state_request(i, 7):  # ENCODER_OFFSET_CALIBRATION
-                    success = False
-                    continue
-                
-                self.calibrated_state[i] = True
-                self.get_logger().info(f'Calibration completed for axis {i}')
-        
-        response.success = success
-        response.message = "Calibrated all motors" if success else "Failed to calibrate some motors"
-        return response
-
     def send_axis_state_request(self, axis_id, state):
         """Send axis state request to ODrive."""
         if not self.axis_state_clients[axis_id].wait_for_service(timeout_sec=2.0):
@@ -284,8 +256,6 @@ class PillaHardwareInterfaceNode(Node):
         active_count = sum(self.active_)
         armed_count = sum(self.armed_state[i] for i in range(self.numJoints) 
                          if self.active_[i])
-        calibrated_count = sum(self.calibrated_state[i] for i in range(self.numJoints) 
-                              if self.active_[i])
         connected_count = sum(self.connection_status[i] for i in range(self.numJoints) 
                              if self.active_[i])
         
@@ -305,7 +275,6 @@ class PillaHardwareInterfaceNode(Node):
         node_status.values = [
             KeyValue(key="active_joints", value=str(active_count)),
             KeyValue(key="armed_joints", value=str(armed_count)),
-            KeyValue(key="calibrated_joints", value=str(calibrated_count)),
             KeyValue(key="connected_joints", value=str(connected_count)),
         ]
         
@@ -321,9 +290,6 @@ class PillaHardwareInterfaceNode(Node):
                 if not self.connection_status[i]:
                     odrive_status.level = DiagnosticStatus.ERROR
                     odrive_status.message = "No connection"
-                elif not self.calibrated_state[i]:
-                    odrive_status.level = DiagnosticStatus.WARN
-                    odrive_status.message = "Not calibrated"
                 elif not self.armed_state[i]:
                     odrive_status.level = DiagnosticStatus.WARN
                     odrive_status.message = "Not armed"
@@ -336,7 +302,6 @@ class PillaHardwareInterfaceNode(Node):
                     KeyValue(key="gear_ratio", value=str(self.gear_ratios[i])),
                     KeyValue(key="direction", value=str(self.directions[i])),
                     KeyValue(key="armed", value=str(self.armed_state[i])),
-                    KeyValue(key="calibrated", value=str(self.calibrated_state[i])),
                     KeyValue(key="connected", value=str(self.connection_status[i])),
                 ]
                 

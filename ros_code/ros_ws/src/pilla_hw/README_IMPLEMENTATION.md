@@ -22,7 +22,6 @@ The `PillaHardwareInterfaceNode` class provides a complete interface between a l
 ### 3. Motor Control Services
 - **Arm Motors**: Service to put all active motors into closed-loop control mode
 - **Disarm Motors**: Service to put all motors into idle state
-- **Calibrate ODrives**: Service to run motor and encoder calibration sequences
 
 ### 4. Diagnostics Publishing
 - Publishes comprehensive diagnostics to `/diagnostics` topic
@@ -43,8 +42,7 @@ The `PillaHardwareInterfaceNode` class provides a complete interface between a l
 
 ### Services Provided
 - `arm_motors` - Arm all active motors (SetBool)
-- `disarm_motors` - Disarm all motors (SetBool)  
-- `calibrate_odrive` - Calibrate all ODrives (SetBool)
+- `disarm_motors` - Disarm all motors (SetBool)
 
 ## Configuration
 
@@ -64,7 +62,6 @@ The `PillaHardwareInterfaceNode` class provides a complete interface between a l
 The node tracks several status indicators:
 - **Connection Status**: Whether each ODrive is responding
 - **Armed Status**: Whether each motor is in closed-loop control
-- **Calibration Status**: Whether each ODrive has been calibrated
 - **Position Feedback**: Last known encoder positions
 
 ## Integration with CHAMP
@@ -77,10 +74,11 @@ The node is designed for seamless integration with the CHAMP locomotion stack:
 ## Usage
 
 1. **Launch the node**: `ros2 run pilla_hw odrive_interface`
-2. **Calibrate ODrives**: `ros2 service call /calibrate_odrive std_srvs/srv/SetBool "data: true"`
-3. **Arm motors**: `ros2 service call /arm_motors std_srvs/srv/SetBool "data: true"`
-4. **Start locomotion**: Launch CHAMP nodes
-5. **Monitor status**: `ros2 topic echo /diagnostics`
+2. **Arm motors**: `ros2 service call /arm_motors std_srvs/srv/SetBool "data: true"`
+3. **Start locomotion**: Launch CHAMP nodes
+4. **Monitor status**: `ros2 topic echo /diagnostics`
+
+*Note: ODrive motor and encoder calibration should be performed separately before robot assembly.*
 
 ## Future Extensibility
 
