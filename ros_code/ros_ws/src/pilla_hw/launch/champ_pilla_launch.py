@@ -19,7 +19,7 @@ def generate_launch_description():
     [FindPackageShare('champ_config'), 'launch', 'bringup.launch.py']
     )
     champ_teleop_launch_path = PathJoinSubstitution(
-    [FindPackageShare('champ_teleop'), 'launch', 'teleop.launch.py']
+    [FindPackageShare('pilla_teleop'), 'launch', 'teleop.launch.py']
     )
     return LaunchDescription([
         IncludeLaunchDescription(

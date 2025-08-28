@@ -8,7 +8,7 @@ from odrive_can.srv import AxisState  # for service (as client)
 from rclpy.node import Node
 from std_srvs.srv import SetBool
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-
+from rclpy.executors import MultiThreadedExecutor
 
 class PillaHardwareInterfaceNode(Node):
     """Node that interfaces between CHAMP and ODrive motor controllers."""
@@ -60,6 +60,7 @@ class PillaHardwareInterfaceNode(Node):
         self.connection_status = [False] * self.numJoints
         self.last_encoder_positions = [0.0] * self.numJoints
         
+        self.pilla_armed = False  # Overall armed state
         # Initialize publishers, subscribers, services
         self.setup_publishers()
         self.setup_subscribers()
@@ -141,7 +142,11 @@ class PillaHardwareInterfaceNode(Node):
     def trajectory_callback(self, msg):
         """Handle incoming joint trajectory commands from CHAMP."""
         if not msg.points:
-            self.get_logger().warn('Received empty trajectory message')
+            # self.get_logger().warn('Received empty trajectory message')
+            return
+        
+        if self.pilla_armed is False:
+            # self.get_logger().warn('Pilla is not armed. Ignoring trajectory command.')
             return
         
         point = msg.points[0]
@@ -155,14 +160,14 @@ class PillaHardwareInterfaceNode(Node):
             if not self.active_[i]:
                 continue
             if not self.armed_state[i]:
-                self.get_logger().warn(f'Axis {i} is not armed. Skipping.')
+                # self.get_logger().warn(f'Axis {i} is not armed. Skipping.')
                 continue
             
             # Apply gear ratio and direction
-            control_msg.input_pos = (point.positions[i] * 
-                                   self.gear_ratios[i] * 
-                                   self.directions[i])
-            self.odrive_publishers[i].publish(control_msg)
+            # control_msg.input_pos = (point.positions[i] * 
+            #                        self.gear_ratios[i] * 
+            #                        self.directions[i])
+            # self.odrive_publishers[i].publish(control_msg)
 
     def odrive_status_callback(self, msg, axis_id):
         """Handle ODrive status feedback."""
@@ -192,19 +197,57 @@ class PillaHardwareInterfaceNode(Node):
         self.joint_state_publisher.publish(joint_state)
     def arm_motors_callback(self, request, response):
         """Service callback to arm all motors."""
-        success = True
+        # Store the response object to populate later
+        self.pending_arm_response = response
+        self.pending_arm_count = 0
+        self.pending_arm_total = sum(self.active_)
+        
         for i in range(self.numJoints):
             if self.active_[i]:
-                if self.send_axis_state_request(i, 8):  # CLOSED_LOOP_CONTROL
-                    self.armed_state[i] = True
-                else:
-                    success = False
-                    self.get_logger().error(f'Failed to arm axis {i}')
+                self.send_axis_state_request_async(i, 8)  # CLOSED_LOOP_CONTROL
         
-        response.success = success
-        response.message = "Armed all motors" if success else "Failed to arm some motors"
+        # For now, return a temporary response - this would need more complex handling
+        response.success = True
+        response.message = "Arming motors..."
+        self.pilla_armed = True
         return response
-
+    
+    def send_axis_state_request_async(self, axis_id, state):
+        """Send axis state request to ODrive asynchronously."""
+        if not self.axis_state_clients[axis_id].wait_for_service(timeout_sec=2.0):
+            self.get_logger().error(f'ODrive axis {axis_id} service not available')
+            return
+        
+        request = AxisState.Request()
+        request.axis_requested_state = state
+        
+        try:
+            future = self.axis_state_clients[axis_id].call_async(request)
+            future.add_done_callback(
+                lambda f, axis=axis_id, req_state=state: self.handle_axis_state_response(f, axis, req_state)
+            )
+        except Exception as e:
+            self.get_logger().error(f'Exception during service call: {e}')
+    
+    def handle_axis_state_response(self, future, axis_id, requested_state):
+        """Handle the response from axis state service call."""
+        try:
+            if future.done() and not future.cancelled():
+                result = future.result()
+                if result is not None:
+                    self.get_logger().info(f'Axis {axis_id} service response - state: {result.axis_state}, errors: {result.active_errors}, procedure: {result.procedure_result}')
+                    
+                    if result.axis_state == requested_state and result.active_errors == 0:
+                        self.armed_state[axis_id] = True
+                        self.get_logger().info(f'Successfully armed axis {axis_id}')
+                    else:
+                        self.get_logger().warn(f'Axis {axis_id} state request incomplete - requested: {requested_state}, actual: {result.axis_state}, errors: {result.active_errors}')
+                else:
+                    self.get_logger().error(f'Service returned None result for axis {axis_id}')
+            else:
+                self.get_logger().error(f'Service call failed for axis {axis_id}')
+        except Exception as e:
+            self.get_logger().error(f'Exception handling service response: {e}')
     def disarm_motors_callback(self, request, response):
         """Service callback to disarm all motors."""
         success = True
@@ -232,11 +275,20 @@ class PillaHardwareInterfaceNode(Node):
         try:
             future = self.axis_state_clients[axis_id].call_async(request)
             rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
-            
+
+            # Check the result directly instead of checking done/cancelled status
             if future.result() is not None:
-                return True
+                result = future.result()
+                self.get_logger().info(f'Axis {axis_id} service response - state: {result.axis_state}, errors: {result.active_errors}, procedure: {result.procedure_result}')
+                
+                # Check if the axis reached the requested state and has no active errors
+                if result.axis_state == state and result.active_errors == 0:
+                    return True
+                else:
+                    self.get_logger().warn(f'Axis {axis_id} state request incomplete - requested: {state}, actual: {result.axis_state}, errors: {result.active_errors}')
+                    return False
             else:
-                self.get_logger().error(f'Service call failed for axis {axis_id}')
+                self.get_logger().error(f'Service returned None result for axis {axis_id}')
                 return False
         except Exception as e:
             self.get_logger().error(f'Exception during service call: {e}')
@@ -313,18 +365,19 @@ class PillaHardwareInterfaceNode(Node):
 def main(args=None):
     """Entry point for initializing and spinning the Pilla hardware interface node."""
     rclpy.init(args=args)
-    
+    pilla_node = PillaHardwareInterfaceNode()
+    executor = MultiThreadedExecutor()
+    executor.add_node(pilla_node)
+
     try:
-        pilla_node = PillaHardwareInterfaceNode()
-        rclpy.spin(pilla_node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     except Exception as e:
         print(f'Error: {e}')
     finally:
-        if 'pilla_node' in locals():
-            pilla_node.destroy_node()
-        rclpy.shutdown()
+        executor.shutdown()
+    rclpy.shutdown()
 
 
 if __name__ == '__main__':
