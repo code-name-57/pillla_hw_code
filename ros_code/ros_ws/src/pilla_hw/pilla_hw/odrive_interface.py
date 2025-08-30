@@ -6,7 +6,7 @@ from odrive_can.msg import ControllerStatus  # for subscriber (to odrive)
 from sensor_msgs.msg import JointState  # for publisher (to champ)
 from odrive_can.srv import AxisState  # for service (as client)
 from rclpy.node import Node
-from std_srvs.srv import SetBool
+from std_srvs.srv import SetBool, Empty  # for service (as server)
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from rclpy.executors import MultiThreadedExecutor
 
@@ -162,7 +162,7 @@ class PillaHardwareInterfaceNode(Node):
         
         # Service for engaging/disengaging trajectory forwarding
         self.engage_service = self.create_service(
-            SetBool, 'engage', self.engage_callback
+            Empty, 'engage', self.engage_callback
         )
         
         # Service for going to zero position
@@ -404,14 +404,6 @@ class PillaHardwareInterfaceNode(Node):
     
     def go_to_zero_pos_callback(self, request, response):
         """Service callback to move robot to zero position (neutral standing)."""
-        # Check if robot is armed
-        # if not self.pilla_armed:
-        #     response.success = False
-        #     response.message = "Robot is not armed. Please arm motors first."
-        #     self.get_logger().warn(response.message)
-        #     return response
-        
-        # Zero position - all joints at 0.0
         target_positions = [0.0] * self.numJoints
         
         # Send position commands to all active joints
