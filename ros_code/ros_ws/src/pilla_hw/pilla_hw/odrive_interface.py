@@ -49,11 +49,40 @@ class PillaHardwareInterfaceNode(Node):
             1    # knee joint
         ]
 
+        self.joint_names = [
+            "lf_hip_joint",
+            "lf_upper_leg_joint",
+            "lf_lower_leg_joint",
+            "rf_hip_joint",
+            "rf_upper_leg_joint",
+            "rf_lower_leg_joint",
+            "lh_hip_joint",
+            "lh_upper_leg_joint",
+            "lh_lower_leg_joint",
+            "rh_hip_joint",
+            "rh_upper_leg_joint",
+            "rh_lower_leg_joint"
+        ]
+
         self.active_ = [
             0, 1, 1,
             0, 1, 1,
             0, 1, 1,
             0, 1, 1
+        ]
+        
+        # Default positions array - each row is a complete position set for all 12 joints
+        self.default_positions = [
+            # Position 0: Neutral standing position
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            # Position 1: Sitting position (knees bent)
+            [0.0, 0.5, -1.0, 0.0, 0.5, -1.0, 0.0, 0.5, -1.0, 0.0, 0.5, -1.0],
+            # Position 2: Low crouch position
+            [0.0, 0.8, -1.6, 0.0, 0.8, -1.6, 0.0, 0.8, -1.6, 0.0, 0.8, -1.6],
+            # Position 3: High stand position
+            [0.0, -0.3, 0.6, 0.0, -0.3, 0.6, 0.0, -0.3, 0.6, 0.0, -0.3, 0.6],
+            # Position 4: Test position with spread legs
+            [0.3, 0.0, 0.0, -0.3, 0.0, 0.0, 0.3, 0.0, 0.0, -0.3, 0.0, 0.0],
         ]
         
         self.armed_state = [False] * self.numJoints
@@ -134,10 +163,35 @@ class PillaHardwareInterfaceNode(Node):
             SetBool, 'disarm_motors', self.disarm_motors_callback
         )
         
+        # Service for engaging/disengaging trajectory forwarding
+        self.engage_service = self.create_service(
+            SetBool, 'engage', self.engage_callback
+        )
+        
+        # Service for going to zero position
+        self.go_to_zero_pos_service = self.create_service(
+            SetBool, 'go_to_zero_pos', self.go_to_zero_pos_callback
+        )
+        
         # Timer for periodic diagnostics publishing
         self.diagnostics_timer = self.create_timer(
             1.0, self.publish_diagnostics
         )
+
+    def engage_callback(self, request, response):
+        """Service callback to engage/disengage trajectory forwarding."""
+        self.pilla_armed = request.data
+        
+        if self.pilla_armed:
+            response.success = True
+            response.message = "Pilla engaged - trajectory commands will be forwarded to ODrives"
+            self.get_logger().info("Pilla engaged - ready to forward trajectory commands")
+        else:
+            response.success = True
+            response.message = "Pilla disengaged - trajectory commands will be ignored"
+            self.get_logger().info("Pilla disengaged - trajectory commands will be ignored")
+        
+        return response
 
     def trajectory_callback(self, msg):
         """Handle incoming joint trajectory commands from CHAMP."""
@@ -164,10 +218,10 @@ class PillaHardwareInterfaceNode(Node):
                 continue
             
             # Apply gear ratio and direction
-            # control_msg.input_pos = (point.positions[i] * 
-            #                        self.gear_ratios[i] * 
-            #                        self.directions[i])
-            # self.odrive_publishers[i].publish(control_msg)
+            control_msg.input_pos = (point.positions[i] * 
+                                   self.gear_ratios[i] * 
+                                   self.directions[i])
+            self.odrive_publishers[i].publish(control_msg)
 
     def odrive_status_callback(self, msg, axis_id):
         """Handle ODrive status feedback."""
@@ -181,8 +235,8 @@ class PillaHardwareInterfaceNode(Node):
         """Publish current joint states back to CHAMP."""
         joint_state = JointState()
         joint_state.header.stamp = self.get_clock().now().to_msg()
-        joint_state.name = [f'joint_{i}' for i in range(self.numJoints)]
-        
+        joint_state.name = self.joint_names
+
         # Convert encoder positions back to joint angles
         positions = []
         for i in range(self.numJoints):
@@ -206,10 +260,11 @@ class PillaHardwareInterfaceNode(Node):
             if self.active_[i]:
                 self.send_axis_state_request_async(i, 8)  # CLOSED_LOOP_CONTROL
         
-        # For now, return a temporary response - this would need more complex handling
+        # Note: This sets individual motor armed states, not the overall pilla_armed flag
+        # Use the separate 'engage' service to enable trajectory forwarding
         response.success = True
-        response.message = "Arming motors..."
-        self.pilla_armed = True
+        response.message = "Arming individual motors... Use 'engage' service to enable trajectory forwarding"
+        self.get_logger().info("Motor arming initiated - use 'engage' service to enable trajectory forwarding")
         return response
     
     def send_axis_state_request_async(self, axis_id, state):
@@ -259,8 +314,17 @@ class PillaHardwareInterfaceNode(Node):
                     success = False
                     self.get_logger().error(f'Failed to disarm axis {i}')
         
+        # Automatically disengage when disarming motors for safety
+        self.pilla_armed = False
+        
         response.success = success
-        response.message = "Disarmed all motors" if success else "Failed to disarm some motors"
+        if success:
+            response.message = "Disarmed all motors and disengaged Pilla"
+            self.get_logger().info("All motors disarmed and Pilla automatically disengaged")
+        else:
+            response.message = "Failed to disarm some motors, but Pilla disengaged for safety"
+            self.get_logger().warn("Some motors failed to disarm, but Pilla disengaged for safety")
+        
         return response
 
     def send_axis_state_request(self, axis_id, state):
@@ -361,6 +425,124 @@ class PillaHardwareInterfaceNode(Node):
         
         self.diagnostics_publisher.publish(diag_array)
 
+    def go_to_default_pos_callback(self, request, response):
+        """Service callback to move robot to a predefined default position."""
+        position_index = request.data
+        
+        # Validate position index
+        if position_index < 0 or position_index >= len(self.default_positions):
+            response.success = False
+            response.message = f"Invalid position index {position_index}. Valid range: 0-{len(self.default_positions)-1}"
+            self.get_logger().error(response.message)
+            return response
+        
+        # Check if robot is armed
+        if not self.pilla_armed:
+            response.success = False
+            response.message = "Robot is not armed. Please arm motors first."
+            self.get_logger().warn(response.message)
+            return response
+        
+        # Get the target positions
+        target_positions = self.default_positions[position_index]
+        
+        # Send position commands to all active joints
+        success_count = 0
+        total_active = sum(self.active_)
+        
+        control_msg = ControlMessage()
+        control_msg.control_mode = 3  # Position control
+        control_msg.input_mode = 1
+        control_msg.input_vel = 0.0
+        control_msg.input_torque = 0.0
+        
+        for i in range(self.numJoints):
+            if not self.active_[i]:
+                continue
+                
+            if not self.armed_state[i]:
+                self.get_logger().warn(f'Axis {i} is not armed. Skipping.')
+                continue
+            
+            try:
+                # Apply gear ratio and direction to convert joint angle to motor position
+                control_msg.input_pos = (target_positions[i] * 
+                                       self.gear_ratios[i] * 
+                                       self.directions[i])
+                
+                self.odrive_publishers[i].publish(control_msg)
+                success_count += 1
+                self.get_logger().info(f'Sent position command to axis {i}: {control_msg.input_pos:.3f} (joint angle: {target_positions[i]:.3f})')
+                
+            except Exception as e:
+                self.get_logger().error(f'Failed to send command to axis {i}: {e}')
+        
+        # Prepare response
+        if success_count == total_active:
+            response.success = True
+            response.message = f"Successfully sent commands to move to position {position_index} ({success_count}/{total_active} joints)"
+            self.get_logger().info(response.message)
+        else:
+            response.success = False
+            response.message = f"Partial success: commanded {success_count}/{total_active} active joints to position {position_index}"
+            self.get_logger().warn(response.message)
+        
+        return response
+
+    def go_to_zero_pos_callback(self, request, response):
+        """Service callback to move robot to zero position (neutral standing)."""
+        # Check if robot is armed
+        # if not self.pilla_armed:
+        #     response.success = False
+        #     response.message = "Robot is not armed. Please arm motors first."
+        #     self.get_logger().warn(response.message)
+        #     return response
+        
+        # Zero position - all joints at 0.0
+        target_positions = [0.0] * self.numJoints
+        
+        # Send position commands to all active joints
+        success_count = 0
+        total_active = sum(self.active_)
+        
+        control_msg = ControlMessage()
+        control_msg.control_mode = 3  # Position control
+        control_msg.input_mode = 1
+        control_msg.input_vel = 0.0
+        control_msg.input_torque = 0.0
+        
+        for i in range(self.numJoints):
+            if not self.active_[i]:
+                continue
+                
+            if not self.armed_state[i]:
+                self.get_logger().warn(f'Axis {i} is not armed. Skipping.')
+                continue
+            
+            try:
+                # Apply gear ratio and direction to convert joint angle to motor position
+                control_msg.input_pos = (target_positions[i] * 
+                                       self.gear_ratios[i] * 
+                                       self.directions[i])
+                
+                self.odrive_publishers[i].publish(control_msg)
+                success_count += 1
+                self.get_logger().info(f'Sent zero position command to axis {i}: {control_msg.input_pos:.3f}')
+                
+            except Exception as e:
+                self.get_logger().error(f'Failed to send command to axis {i}: {e}')
+        
+        # Prepare response
+        if success_count == total_active:
+            response.success = True
+            response.message = f"Successfully sent commands to move to zero position ({success_count}/{total_active} joints)"
+            self.get_logger().info(response.message)
+        else:
+            response.success = False
+            response.message = f"Partial success: commanded {success_count}/{total_active} active joints to zero position"
+            self.get_logger().warn(response.message)
+        
+        return response
 
 def main(args=None):
     """Entry point for initializing and spinning the Pilla hardware interface node."""
