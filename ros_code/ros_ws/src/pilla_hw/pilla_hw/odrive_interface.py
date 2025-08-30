@@ -162,12 +162,12 @@ class PillaHardwareInterfaceNode(Node):
         
         # Service for engaging/disengaging trajectory forwarding
         self.engage_service = self.create_service(
-            Empty, 'engage', self.engage_callback
+            SetBool, 'engage', self.engage_callback
         )
         
         # Service for going to zero position
         self.go_to_zero_pos_service = self.create_service(
-            SetBool, 'go_to_zero_pos', self.go_to_zero_pos_callback
+            Empty, 'go_to_zero_pos', self.go_to_zero_pos_callback
         )
         
         # Timer for periodic diagnostics publishing
