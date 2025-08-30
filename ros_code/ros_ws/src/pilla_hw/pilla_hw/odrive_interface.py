@@ -291,8 +291,13 @@ class PillaHardwareInterfaceNode(Node):
                     self.get_logger().info(f'Axis {axis_id} service response - state: {result.axis_state}, errors: {result.active_errors}, procedure: {result.procedure_result}')
                     
                     if result.axis_state == requested_state and result.active_errors == 0:
-                        self.armed_state[axis_id] = True
-                        self.get_logger().info(f'Successfully armed/disarmed axis {axis_id}')
+                        if requested_state == 1:  # IDLE
+                            self.armed_state[axis_id] = False
+                            self.get_logger().info(f'Successfully disarmed axis {axis_id}')
+
+                        elif requested_state == 8:  # CLOSED_LOOP_CONTROL
+                            self.armed_state[axis_id] = True
+                            self.get_logger().info(f'Successfully armed axis {axis_id}')
                     else:
                         self.get_logger().warn(f'Axis {axis_id} state request incomplete - requested: {requested_state}, actual: {result.axis_state}, errors: {result.active_errors}')
                 else:
@@ -302,37 +307,6 @@ class PillaHardwareInterfaceNode(Node):
         except Exception as e:
             self.get_logger().error(f'Exception handling service response: {e}')
 
-
-    def send_axis_state_request(self, axis_id, state):
-        """Send axis state request to ODrive."""
-        if not self.axis_state_clients[axis_id].wait_for_service(timeout_sec=2.0):
-            self.get_logger().error(f'ODrive axis {axis_id} service not available')
-            return False
-        
-        request = AxisState.Request()
-        request.axis_requested_state = state
-        
-        try:
-            future = self.axis_state_clients[axis_id].call_async(request)
-            rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
-
-            # Check the result directly instead of checking done/cancelled status
-            if future.result() is not None:
-                result = future.result()
-                self.get_logger().info(f'Axis {axis_id} service response - state: {result.axis_state}, errors: {result.active_errors}, procedure: {result.procedure_result}')
-                
-                # Check if the axis reached the requested state and has no active errors
-                if result.axis_state == state and result.active_errors == 0:
-                    return True
-                else:
-                    self.get_logger().warn(f'Axis {axis_id} state request incomplete - requested: {state}, actual: {result.axis_state}, errors: {result.active_errors}')
-                    return False
-            else:
-                self.get_logger().error(f'Service returned None result for axis {axis_id}')
-                return False
-        except Exception as e:
-            self.get_logger().error(f'Exception during service call: {e}')
-            return False
 
     def publish_diagnostics(self):
         """Publish diagnostics information."""
