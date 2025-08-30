@@ -6,7 +6,7 @@ from odrive_can.msg import ControllerStatus  # for subscriber (to odrive)
 from sensor_msgs.msg import JointState  # for publisher (to champ)
 from odrive_can.srv import AxisState  # for service (as client)
 from rclpy.node import Node
-from std_srvs.srv import SetBool, Empty  # for service (as server)
+from std_srvs.srv import SetBool, Trigger  # for service (as server)
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from rclpy.executors import MultiThreadedExecutor
 
@@ -167,7 +167,7 @@ class PillaHardwareInterfaceNode(Node):
         
         # Service for going to zero position
         self.go_to_zero_pos_service = self.create_service(
-            Empty, 'go_to_zero_pos', self.go_to_zero_pos_callback
+            Trigger, 'go_to_zero_pos', self.go_to_zero_pos_callback
         )
         
         # Timer for periodic diagnostics publishing
