@@ -76,8 +76,8 @@ def generate_launch_description():
             namespace="pilla",
         ),
 
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(pilla_arduino_imu_launch_path),
-        ),
+        # IncludeLaunchDescription(
+        #     PythonLaunchDescriptionSource(pilla_arduino_imu_launch_path),
+        # ),
         
 ])
