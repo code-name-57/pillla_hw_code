@@ -5,4 +5,5 @@ ros_code/ros_ws/log
 
 env/
 
-**/__pycache__/
+**/__pycache__
+**.pyc

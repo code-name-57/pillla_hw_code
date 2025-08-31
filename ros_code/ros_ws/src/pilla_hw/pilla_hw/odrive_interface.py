@@ -1,27 +1,24 @@
 # LIBRARIES
 import rclpy
-from trajectory_msgs.msg import JointTrajectory #for subscriber (to champ)
-from odrive_can.msg import ControlMessage #for publisher (to odrive)
-from odrive_can.msg import ControllerStatus #for subscriber (to odrive)
-from sensor_msgs.msg import JointState #for publisher (to champ)
-from odrive_can.srv import AxisState #for service (as client)
+from trajectory_msgs.msg import JointTrajectory  # for subscriber (to champ)
+from odrive_can.msg import ControlMessage  # for publisher (to odrive)
+from odrive_can.msg import ControllerStatus  # for subscriber (to odrive)
+from sensor_msgs.msg import JointState  # for publisher (to champ)
+from odrive_can.srv import AxisState  # for service (as client)
 from rclpy.node import Node
-from std_msgs.msg import String
-from rclpy.task import Future
-import functools
-from message_filters import Subscriber, ApproximateTimeSynchronizer, Cache
-
+from std_srvs.srv import SetBool, Trigger  # for service (as server)
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
+from rclpy.executors import MultiThreadedExecutor
 
 class PillaHardwareInterfaceNode(Node):
     """Node that interfaces between CHAMP and ODrive motor controllers."""
-    
-    # INITIALIZATION (including method calls)
+
     def __init__(self):
-        """"Initializes the pilla_node with joint parameters and sets up publishers, subscribers, services."""
-        
+        """Initializes pilla_node with joint parameters and sets up publishers, subscribers, services."""
         super().__init__('pilla_node') 
 
         self.numJoints = 12
+        self.queue_size = 10
         self.gear_ratios = [
             1.27,  # hip joint
             1.27,  # upper leg joint
@@ -38,164 +35,410 @@ class PillaHardwareInterfaceNode(Node):
         ]
 
         self.directions = [
-            1,  # hip joint
+            1,   # hip joint
             -1,  # upper leg joint
-            -1, # knee joint
-            1,  # hip joint
-            1,  # upper leg joint
-            1, # knee joint
-            1,  # hip joint
+            -1,  # knee joint
+            1,   # hip joint
+            1,   # upper leg joint
+            1,   # knee joint
+            1,   # hip joint
             -1,  # upper leg joint
-            -1, # knee joint
-            1,  # hip joint
-            1,  # upper leg joint
-            1  # knee joint
+            -1,  # knee joint
+            1,   # hip joint
+            1,   # upper leg joint
+            1    # knee joint
         ]
 
+        self.joint_names = [
+            "lf_hip_joint",
+            "lf_upper_leg_joint",
+            "lf_lower_leg_joint",
+            "rf_hip_joint",
+            "rf_upper_leg_joint",
+            "rf_lower_leg_joint",
+            "lh_hip_joint",
+            "lh_upper_leg_joint",
+            "lh_lower_leg_joint",
+            "rh_hip_joint",
+            "rh_upper_leg_joint",
+            "rh_lower_leg_joint"
+        ]
 
         self.active_ = [
-            0,
-            1,
-            1,
-            0,
-            1,
-            1,
-            0,
-            1,
-            1,
-            0,
-            1,
-            1
+            0, 1, 1,
+            0, 1, 1,
+            0, 1, 1,
+            0, 1, 1
         ]
-        self.armed_state = [False] * self.numJoints # for each odrive axis
-        # SUBCRIBING (to simulation joint movement)
-        self.subscription = None
-        self.futures_ = [None] * self.numJoints
-        # PUBLISHING & SERVICE CLIENT (to odrive node)
-        self.publishers_ = []
-        self.clients_ = []
-
-
-        for i in range(0, self.numJoints ):
-            pos_estimate_topic_string = '/odrive_axis' + str(1) + '/controller_status'
-            pos_estimate_subs = Subscriber(self, ControllerStatus, pos_estimate_topic_string)
-            self.odrive_pos_estimate_sub.append( pos_estimate_subs )
-
-        self.ts = ApproximateTimeSynchronizer( self.odrive_pos_estimate_sub, queue_size=self.queue_size, slop=0.1, allow_headerless=True)
-        self.ts.registerCallback(lambda *msgs: self.pos_estimates_listener_callback(list(msgs)))
         
-    # PUBLISHING (to champ algorithm)
-    def create_champ_joint_state_publisher(self):
-        """Creates a ROS publisher for publishing joint states to CHAMP algorithm"""
+        # Default positions array - each row is a complete position set for all 12 joints
+        self.default_positions = [
+            # Position 0: Neutral standing position
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            # Position 1: Sitting position (knees bent)
+            [0.0, 0.5, -1.0, 0.0, 0.5, -1.0, 0.0, 0.5, -1.0, 0.0, 0.5, -1.0],
+            # Position 2: Low crouch position
+            [0.0, 0.8, -1.6, 0.0, 0.8, -1.6, 0.0, 0.8, -1.6, 0.0, 0.8, -1.6],
+            # Position 3: High stand position
+            [0.0, -0.3, 0.6, 0.0, -0.3, 0.6, 0.0, -0.3, 0.6, 0.0, -0.3, 0.6],
+            # Position 4: Test position with spread legs
+            [0.3, 0.0, 0.0, -0.3, 0.0, 0.0, 0.3, 0.0, 0.0, -0.3, 0.0, 0.0],
+        ]
+        
+        self.armed_state = [False] * self.numJoints
+        self.connection_status = [False] * self.numJoints
+        self.last_encoder_positions = [0.0] * self.numJoints
+        
+        self.pilla_armed = False  # Overall armed state
+        # Initialize publishers, subscribers, services
+        self.setup_publishers()
+        self.setup_subscribers()
+        self.setup_services()
+        
+        self.get_logger().info('Pilla Hardware Interface Node initialized')
 
-        self.champ_joint_state_publisher = self.create_publisher(
+    def setup_publishers(self):
+        """Setup all publishers for joint states and diagnostics."""
+        # Publisher for joint states back to CHAMP
+        self.joint_state_publisher = self.create_publisher(
             JointState,
-            '/joint_states', #topic
+            '/joint_states',
+            self.queue_size
+        )
+        
+        # Publishers for ODrive control commands
+        self.odrive_publishers = []
+        for i in range(self.numJoints):
+            joint_command_topic = f'/odrive_axis{i}/control_message'
+            pub = self.create_publisher(
+                ControlMessage,
+                joint_command_topic,
+                self.queue_size
+            )
+            self.odrive_publishers.append(pub)
+        
+        # Diagnostics publisher
+        self.diagnostics_publisher = self.create_publisher(
+            DiagnosticArray,
+            '/diagnostics',
             self.queue_size
         )
 
-    # PUBLISHING & SERVICE CLIENT (to odrive node)
-    def create_odrive_publisher_and_service(self):
-        """Initialize ODrive joint command publishers and axis state service clients for each joint."""
-
-        # self.odrive_joint_command_publishers = []
-        # self.odrive_axis_state_clients = []
-        # self.odrive_axis_state_futures = [Future] * self.numJoints
-
-        for i in range(0 ,self.numJoints):
-            # PUBLISHER
-            joint_command_topic_string = '/odrive_axis' + str(i) + '/control_message'
-            joint_command_pub = self.create_publisher(
-                ControlMessage,
-                joint_command_topic_string,
+    def setup_subscribers(self):
+        """Setup subscribers for joint trajectory commands and ODrive feedback."""
+        # Subscriber for joint trajectory commands from CHAMP
+        self.trajectory_subscription = self.create_subscription(
+            JointTrajectory,
+            '/joint_group_effort_controller/joint_trajectory',
+            self.trajectory_callback,
+            self.queue_size
+        )
+        
+        # Subscribers for ODrive position feedback
+        self.odrive_status_subscribers = []
+        for i in range(self.numJoints):
+            topic = f'/odrive_axis{i}/controller_status'
+            sub = self.create_subscription(
+                ControllerStatus,
+                topic,
+                lambda msg, axis=i: self.odrive_status_callback(msg, axis),
                 self.queue_size
             )
-            self.odrive_joint_command_publishers.append( joint_command_pub )
-            # SERVICE CLIENT
-            axis_state_topic_string = '/odrive_axis' + str(i) + '/request_axis_state'
-            axis_state_client = self.create_client(
-                AxisState,
-                axis_state_topic_string
-            )
-            self.odrive_axis_state_clients.append( axis_state_client )
+            self.odrive_status_subscribers.append(sub)
 
-
-        # while not self.cli.wait_for_service(timeout_sec=1.0):
-        #     self.get_logger().info('service not available, waiting again...')
-        self.req = AxisState.Request()
-        self.get_logger().info('Pilla Hardware Interface Node may not have been started.')
-        self.send_request(8) # make sure motor is in CLC before starting
-
-
-    # For Service
-    def send_AxisState_request(self, axis_requested_state):
-        """Send a request to set the axis state (closed loop control) for all ODrive motors."""
+    def setup_services(self):
+        """Setup services for arm/disarm and calibration operations."""
+        # Service clients for ODrive axis state control
+        self.axis_state_clients = []
+        for i in range(self.numJoints):
+            service_name = f'/odrive_axis{i}/request_axis_state'
+            client = self.create_client(AxisState, service_name)
+            self.axis_state_clients.append(client)
         
-        req = AxisState.Request()
-        req.axis_requested_state = axis_requested_state
-        
-        # self.axis_state_service_timeouts = [None] * self.numJoints  # Track timers
-
-        for i in range(0, self.numJoints):
-            while not self.clients_[i].wait_for_service(timeout_sec=2.0):
-                self.get_logger().info('odrive service not available, waiting again...')
-            self.futures_[i] = self.clients_[i].call_async(self.req)
-            rclpy.spin_until_future_complete(self, self.futures_[i], timeout_sec=1.0)
-            self.armed_state[i] = True
-            # self.futures_[i].result()  # This will raise an exception if the service call failed
-            # if self.futures_[i].result() is not None:
-            #     self.get_logger().info(f'Response from odrive axis {i}: {self.futures_[i].result().axis_state}')
-            #     self.armed_state[i] = (self.futures_[i].result().axis_state == axis_requested_state)
-            # else:
-            #     self.get_logger().error(f'Error calling service for odrive axis {i}')
-
-        self.subscription = self.create_subscription(
-            JointTrajectory,
-            '/joint_group_effort_controller/joint_trajectory', #topic
-            self.listener_callback,
-            10
+        # Service servers for external control
+        self.arm_motors_service = self.create_service(
+            SetBool, 'arm_motors', self.arm_motors_callback
         )
-        # return self.future.result()
+        
+        # Service for engaging/disengaging trajectory forwarding
+        self.engage_service = self.create_service(
+            SetBool, 'engage', self.engage_callback
+        )
+        
+        # Service for going to zero position
+        self.go_to_zero_pos_service = self.create_service(
+            Trigger, 'go_to_zero_pos', self.go_to_zero_pos_callback
+        )
+        
+        # Timer for periodic diagnostics publishing
+        self.diagnostics_timer = self.create_timer(
+            1.0, self.publish_diagnostics
+        )
 
-    # For subscriber (get position from simulation)
-    def listener_callback(self, msg):
-        # for i in range(0,self.numJoints):
-        #     self.get_logger().info('I heard: "%s"' % msg.points[0].positions[i])
-        send_msg = ControlMessage()
-        send_msg.control_mode = 3
-        send_msg.input_mode = 1
-        send_msg.input_vel = 0.0
-        send_msg.input_torque = 0.0
+    def engage_callback(self, request, response):
+        """Service callback to engage/disengage trajectory forwarding."""
+        self.pilla_armed = request.data
+        
+        if self.pilla_armed:
+            response.success = True
+            response.message = "Pilla engaged - trajectory commands will be forwarded to ODrives"
+            self.get_logger().info("Pilla engaged - ready to forward trajectory commands")
+        else:
+            response.success = True
+            response.message = "Pilla disengaged - trajectory commands will be ignored"
+            self.get_logger().info("Pilla disengaged - trajectory commands will be ignored")
+        
+        return response
 
-        for i in range(0,self.numJoints):
+    def trajectory_callback(self, msg):
+        """Handle incoming joint trajectory commands from CHAMP."""
+        if not msg.points:
+            # self.get_logger().warn('Received empty trajectory message')
+            return
+        
+        if self.pilla_armed is False:
+            # self.get_logger().warn('Pilla is not armed. Ignoring trajectory command.')
+            return
+        
+        point = msg.points[0]
+        control_msg = ControlMessage()
+        control_msg.control_mode = 3  # Position control
+        control_msg.input_mode = 1
+        control_msg.input_vel = 0.0
+        control_msg.input_torque = 0.0
+
+        for i in range(min(self.numJoints, len(point.positions))):
             if not self.active_[i]:
-                # self.get_logger().warn(f'Axis {i} is not active. Skipping control message.')
                 continue
             if not self.armed_state[i]:
-                self.get_logger().warn(f'Axis {i} is not armed. Skipping control message.')
+                # self.get_logger().warn(f'Axis {i} is not armed. Skipping.')
                 continue
-            multValue = 1.27 # for gear ratio multiplication
-            if( i % 3 == 2 ):
-                multValue = 2.26 # different for knee joint
-            send_msg.input_pos = msg.points[0].positions[i] * self.gear_ratios[i] * self.directions[i]
-            self.publishers_[i].publish(send_msg)
-        # Note: 
-        # -> for knee joint (position 2), must multiply by 0.7854 -> now 2.26
-        # -> for upper leg (position 1), 1.27 
-        # -> for hip joint (position 0), 1.27
+            
+            # Apply gear ratio and direction
+            control_msg.input_pos = (point.positions[i] * 
+                                   self.gear_ratios[i] * 
+                                   self.directions[i])
+            self.odrive_publishers[i].publish(control_msg)
+
+    def odrive_status_callback(self, msg, axis_id):
+        """Handle ODrive status feedback."""
+        self.connection_status[axis_id] = True
+        self.last_encoder_positions[axis_id] = msg.pos_estimate
+        
+        # Publish joint state feedback to CHAMP
+        self.publish_joint_states()
+
+    def publish_joint_states(self):
+        """Publish current joint states back to CHAMP."""
+        joint_state = JointState()
+        joint_state.header.stamp = self.get_clock().now().to_msg()
+        joint_state.name = self.joint_names
+
+        # Convert encoder positions back to joint angles
+        positions = []
+        for i in range(self.numJoints):
+            pos = (self.last_encoder_positions[i] / 
+                  (self.gear_ratios[i] * self.directions[i]))
+            positions.append(pos)
+        
+        joint_state.position = positions
+        joint_state.velocity = [0.0] * self.numJoints
+        joint_state.effort = [0.0] * self.numJoints
+        
+        self.joint_state_publisher.publish(joint_state)
+
+    def arm_motors_callback(self, request, response):
+        """Service callback to arm all motors."""    
+        if request.data is False:
+            for i in range(self.numJoints):
+                if self.active_[i]:
+                    self.send_axis_state_request_async(i, 1)  # IDLE
+            response.success = True
+            response.message = "Dis-arming individual motors"
+            self.get_logger().info("Motor dis-arming initiated")
+        elif request.data is True:
+            for i in range(self.numJoints):
+                if self.active_[i]:
+                    self.send_axis_state_request_async(i, 8)  # CLOSED_LOOP_CONTROL
+            response.success = True
+            response.message = "Arming individual motors... Use 'engage' service to enable trajectory forwarding"
+            self.get_logger().info("Motor arming initiated - use 'engage' service to enable trajectory forwarding")
+        return response
+    
+    def send_axis_state_request_async(self, axis_id, state):
+        """Send axis state request to ODrive asynchronously."""
+        if not self.axis_state_clients[axis_id].wait_for_service(timeout_sec=2.0):
+            self.get_logger().error(f'ODrive axis {axis_id} service not available')
+            return
+        
+        request = AxisState.Request()
+        request.axis_requested_state = state
+        
+        try:
+            future = self.axis_state_clients[axis_id].call_async(request)
+            future.add_done_callback(
+                lambda f, axis=axis_id, req_state=state: self.handle_axis_state_response(f, axis, req_state)
+            )
+        except Exception as e:
+            self.get_logger().error(f'Exception during service call: {e}')
+    
+    def handle_axis_state_response(self, future, axis_id, requested_state):
+        """Handle the response from axis state service call."""
+        try:
+            if future.done() and not future.cancelled():
+                result = future.result()
+                if result is not None:
+                    self.get_logger().info(f'Axis {axis_id} service response - state: {result.axis_state}, errors: {result.active_errors}, procedure: {result.procedure_result}')
+                    
+                    if result.axis_state == requested_state and result.active_errors == 0:
+                        if requested_state == 1:  # IDLE
+                            self.armed_state[axis_id] = False
+                            self.get_logger().info(f'Successfully disarmed axis {axis_id}')
+
+                        elif requested_state == 8:  # CLOSED_LOOP_CONTROL
+                            self.armed_state[axis_id] = True
+                            self.get_logger().info(f'Successfully armed axis {axis_id}')
+                    else:
+                        self.get_logger().warn(f'Axis {axis_id} state request incomplete - requested: {requested_state}, actual: {result.axis_state}, errors: {result.active_errors}')
+                else:
+                    self.get_logger().error(f'Service returned None result for axis {axis_id}')
+            else:
+                self.get_logger().error(f'Service call failed for axis {axis_id}')
+        except Exception as e:
+            self.get_logger().error(f'Exception handling service response: {e}')
 
 
-# MAIN
+    def publish_diagnostics(self):
+        """Publish diagnostics information."""
+        diag_array = DiagnosticArray()
+        diag_array.header.stamp = self.get_clock().now().to_msg()
+        diag_array.header.frame_id = ""
+        
+        # Overall node health
+        node_status = DiagnosticStatus()
+        node_status.name = "pilla_hardware_interface"
+        node_status.hardware_id = "pilla_quadruped"
+        
+        active_count = sum(self.active_)
+        armed_count = sum(self.armed_state[i] for i in range(self.numJoints) 
+                         if self.active_[i])
+        connected_count = sum(self.connection_status[i] for i in range(self.numJoints) 
+                             if self.active_[i])
+        
+        if connected_count == active_count and armed_count == active_count:
+            node_status.level = DiagnosticStatus.OK
+            node_status.message = "All systems operational"
+        elif connected_count < active_count:
+            node_status.level = DiagnosticStatus.ERROR
+            node_status.message = f"Connection lost to {active_count - connected_count} ODrives"
+        elif armed_count < active_count:
+            node_status.level = DiagnosticStatus.WARN
+            node_status.message = f"{active_count - armed_count} motors not armed"
+        else:
+            node_status.level = DiagnosticStatus.OK
+            node_status.message = "Operational"
+        
+        node_status.values = [
+            KeyValue(key="active_joints", value=str(active_count)),
+            KeyValue(key="armed_joints", value=str(armed_count)),
+            KeyValue(key="connected_joints", value=str(connected_count)),
+        ]
+        
+        diag_array.status.append(node_status)
+        
+        # Individual ODrive status
+        for i in range(self.numJoints):
+            if self.active_[i]:
+                odrive_status = DiagnosticStatus()
+                odrive_status.name = f"odrive_axis_{i}"
+                odrive_status.hardware_id = f"odrive_{i//2}"
+                
+                if not self.connection_status[i]:
+                    odrive_status.level = DiagnosticStatus.ERROR
+                    odrive_status.message = "No connection"
+                elif not self.armed_state[i]:
+                    odrive_status.level = DiagnosticStatus.WARN
+                    odrive_status.message = "Not armed"
+                else:
+                    odrive_status.level = DiagnosticStatus.OK
+                    odrive_status.message = "Operational"
+                
+                odrive_status.values = [
+                    KeyValue(key="position", value=str(self.last_encoder_positions[i])),
+                    KeyValue(key="gear_ratio", value=str(self.gear_ratios[i])),
+                    KeyValue(key="direction", value=str(self.directions[i])),
+                    KeyValue(key="armed", value=str(self.armed_state[i])),
+                    KeyValue(key="connected", value=str(self.connection_status[i])),
+                ]
+                
+                diag_array.status.append(odrive_status)
+        
+        self.diagnostics_publisher.publish(diag_array)
+
+    
+    def go_to_zero_pos_callback(self, request, response):
+        """Service callback to move robot to zero position (neutral standing)."""
+        target_positions = [0.0] * self.numJoints
+        
+        # Send position commands to all active joints
+        success_count = 0
+        total_active = sum(self.active_)
+        
+        control_msg = ControlMessage()
+        control_msg.control_mode = 3  # Position control
+        control_msg.input_mode = 1
+        control_msg.input_vel = 0.0
+        control_msg.input_torque = 0.0
+        
+        for i in range(self.numJoints):
+            if not self.active_[i]:
+                continue
+                
+            if not self.armed_state[i]:
+                self.get_logger().warn(f'Axis {i} is not armed. Skipping.')
+                continue
+            
+            try:
+                # Apply gear ratio and direction to convert joint angle to motor position
+                control_msg.input_pos = (target_positions[i] * 
+                                       self.gear_ratios[i] * 
+                                       self.directions[i])
+                
+                self.odrive_publishers[i].publish(control_msg)
+                success_count += 1
+                self.get_logger().info(f'Sent zero position command to axis {i}: {control_msg.input_pos:.3f}')
+                
+            except Exception as e:
+                self.get_logger().error(f'Failed to send command to axis {i}: {e}')
+        
+        # Prepare response
+        if success_count == total_active:
+            response.success = True
+            response.message = f"Successfully sent commands to move to zero position ({success_count}/{total_active} joints)"
+            self.get_logger().info(response.message)
+        else:
+            response.success = False
+            response.message = f"Partial success: commanded {success_count}/{total_active} active joints to zero position"
+            self.get_logger().warn(response.message)
+        
+        return response
+
 def main(args=None):
     """Entry point for initializing and spinning the Pilla hardware interface node."""
-
-    # Confirmation of starting
-    print('Hi from my_package.')
-
-    # boilerplate setup!
-    rclpy.init(args = args)
+    rclpy.init(args=args)
     pilla_node = PillaHardwareInterfaceNode()
-    rclpy.spin( pilla_node )
+    executor = MultiThreadedExecutor()
+    executor.add_node(pilla_node)
+
+    try:
+        executor.spin()
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        print(f'Error: {e}')
+    finally:
+        executor.shutdown()
+    rclpy.shutdown()
 
 
 if __name__ == '__main__':
