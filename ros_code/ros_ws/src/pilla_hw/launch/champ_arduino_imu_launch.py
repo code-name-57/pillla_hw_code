@@ -13,14 +13,14 @@ def generate_launch_description():
             package="pilla_hw",
             executable="arduino_interface",
             name="pilla_arduino_interface",
-            namespace="pilla",
+            # namespace="pilla",
         ),
         
         Node(
             package="imu_filter_madgwick",
             executable="imu_filter_madgwick_node",
             name="imu_filter_madgwick",
-            namespace="pilla",
+            # namespace="pilla",
             parameters=[
                 {"use_mag": False},
                 {"fixed_frame": 'odom'},
