@@ -1,10 +1,12 @@
 import os
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.substitutions import FindPackageShare
 from launch_ros.actions import Node
+
 
 def generate_launch_description():
     this_package_name = 'pilla_hw'
@@ -16,10 +18,10 @@ def generate_launch_description():
         [this_package, 'launch', 'champ_arduino_imu_launch.py']
     )
     champ_bringup_launch_path = PathJoinSubstitution(
-    [FindPackageShare('champ_config'), 'launch', 'bringup.launch.py']
+        [FindPackageShare('champ_config'), 'launch', 'bringup.launch.py']
     )
     champ_teleop_launch_path = PathJoinSubstitution(
-    [FindPackageShare('pilla_teleop'), 'launch', 'teleop.launch.py']
+        [FindPackageShare('pilla_teleop'), 'launch', 'teleop.launch.py']
     )
     return LaunchDescription([
         IncludeLaunchDescription(
@@ -27,27 +29,39 @@ def generate_launch_description():
         ),
 
         DeclareLaunchArgument(
-            name='rviz', 
+            name='rviz',
             default_value='true',
             description='Run rviz'
         ),
 
         DeclareLaunchArgument(
-            name='robot_name', 
+            name='robot_name',
             default_value='champ',
             description='Set robot name for multi robot'
         ),
 
         DeclareLaunchArgument(
-            name='sim', 
+            name='sim',
             default_value='false',
             description='Enable use_sim_time to true'
         ),
 
         DeclareLaunchArgument(
-            name='hardware_connected', 
+            name='hardware_connected',
             default_value='false',
             description='Set to true if connected to a physical robot'
+        ),
+
+        DeclareLaunchArgument(
+            name='use_joy',
+            default_value='true',
+            description='Use joystick (true) or keyboard (false) for teleoperation'
+        ),
+
+        DeclareLaunchArgument(
+            name='use_imu',
+            default_value='true',
+            description='Launch Arduino IMU node'
         ),
 
         IncludeLaunchDescription(
@@ -64,11 +78,11 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(champ_teleop_launch_path),
             launch_arguments={
                 'use_sim_time': LaunchConfiguration('sim'),
-                'use_joy': 'true',
+                'use_joy': LaunchConfiguration('use_joy'),
                 'dev': '/dev/input/js0'
             }.items()
         ),
-        
+
         Node(
             package="pilla_hw",
             executable="odrive_interface",
@@ -76,8 +90,8 @@ def generate_launch_description():
             namespace="pilla",
         ),
 
-        # IncludeLaunchDescription(
-        #     PythonLaunchDescriptionSource(pilla_arduino_imu_launch_path),
-        # ),
-        
-])
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(pilla_arduino_imu_launch_path),
+            condition=IfCondition(LaunchConfiguration('use_imu')),
+        ),
+    ])

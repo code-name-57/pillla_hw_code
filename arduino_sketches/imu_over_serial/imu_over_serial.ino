@@ -6,7 +6,7 @@
 //create JSON document
 StaticJsonDocument<200> doc; // allocates 200 bytes for JSON (could reduce?)
 
-const unsigned long interval = 10; // 20ms for 50Hz
+const unsigned long interval = 10; // 10ms for 100Hz
 unsigned long lastUpdate = 0;
 bool useRefreshRate = true; // use refresh rate if available
 

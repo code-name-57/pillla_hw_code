@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+
+jobs:
+  lint:
+    name: Python Lint (flake8)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install lint dependencies
+        run: pip install flake8
+
+      - name: Run flake8 on pilla_hw package
+        run: |
+          cd ros_code/ros_ws/src/pilla_hw
+          python3 -m flake8 pilla_hw/ --count --statistics \
+            --select=F --extend-ignore=F401
+
+      - name: Run flake8 on ODrive CAN scripts
+        run: |
+          python3 -m flake8 odrive_scripts/can_code/ --count --statistics \
+            --select=F --extend-ignore=F401
+
+  can-imports:
+    name: Validate CAN Library Imports
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install CAN dependencies
+        run: pip install cantools python-can pyserial
+
+      - name: Validate CAN library imports
+        run: |
+          cd odrive_scripts/can_code
+          python3 -c "from can_joint import CanJoint; import cantools; print('CAN libraries import OK')"
