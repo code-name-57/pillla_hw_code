@@ -71,13 +71,12 @@ class CanJoint:
         self.can_bus.send(msg)
 
     def test_movement(self):
-        target = 0
         t0 = time.monotonic()
         for i in range(1,50):
             setpoint = 4.0 * math.sin((time.monotonic() - t0)*2)
             print("goto " + str(setpoint))
             data = self.can_db.encode_message('Axis0_Set_Input_Pos', {'Input_Pos':setpoint, 'Vel_FF':0.0, 'Torque_FF':0.0})
-            msg = can.Message(arbitration_id=axisID << 5 | 0x00C, data=data, is_extended_id=False)
+            msg = can.Message(arbitration_id=self.axisID << 5 | 0x00C, data=data, is_extended_id=False)
             self.can_bus.send(msg)
             time.sleep(0.01)
 

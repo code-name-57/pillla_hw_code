@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
-<package>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
     <name>pilla_teleop</name>
     <version>0.6.2</version>
     <description>Gamepad teleop node for Pilla Robot.</description>
@@ -12,13 +13,13 @@
 
     <author>Vishwajeet Narwal</author>
 
-
     <buildtool_depend>ament_cmake</buildtool_depend>
 
-    <run_depend>geometry_msgs</run_depend>
-    <run_depend>joy</run_depend>
-    <run_depend>rclpy</run_depend>
-    <run_depend>sensor_msgs</run_depend>
+    <exec_depend>champ_msgs</exec_depend>
+    <exec_depend>geometry_msgs</exec_depend>
+    <exec_depend>joy</exec_depend>
+    <exec_depend>rclpy</exec_depend>
+    <exec_depend>sensor_msgs</exec_depend>
 
     <export>
         <build_type>ament_cmake</build_type>
